@@ -11,3 +11,5 @@ This directory is what the grok fly-brain controller **writes**:
 | `live/activity.bin` | Overlay activity (also dual-written to the lab IPC dir) |
 
 Override with `FLYBRAIN_DATA`. Do not put these files back in the shared MaleCNS cache.
+
+Published weights and the optic crop: [huggingface.co/monomyth/fly-brain-grok](https://huggingface.co/monomyth/fly-brain-grok). Staging copy: `data/hf-fly-brain-grok/` (gitignored). Upload with a write token: `python scripts/publish_hf.py`.

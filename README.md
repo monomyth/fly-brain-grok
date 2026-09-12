@@ -52,6 +52,9 @@ export MALECNS_HOME="$HOME/data/malecns"          # GCS feathers + prepared grap
 export FLYBRAIN_DATA="$PWD/data"
 
 # weights (tiny) + optional optic crop (~19 MB)
+# If the Hub repo is empty, upload once with a *write* token:
+#   huggingface-cli login
+#   python scripts/publish_hf.py
 huggingface-cli download monomyth/fly-brain-grok --local-dir "$FLYBRAIN_DATA/hf-fly-brain-grok"
 cp "$FLYBRAIN_DATA/hf-fly-brain-grok/g-distill.npz" "$FLYBRAIN_DATA/checkpoints/rebot-pickup/"
 
