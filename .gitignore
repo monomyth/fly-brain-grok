@@ -1,0 +1,39 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.DS_Store
+docs/sorry-i-fucked-up.md
+artifacts/
+.env
+.env.*
+
+# Local MaleCNS downloads and huge teacher JPEG dumps stay off GitHub.
+# Weights and the optic crop live on Hugging Face: https://huggingface.co/monomyth/fly-brain-grok
+data/datasets/
+data/live/
+data/hf-fly-brain-grok/
+data/prepared/*.npz
+data/checkpoints/rebot-pickup/stub-crop/
+data/checkpoints/rebot-pickup/*.agc-flood.npz
+data/checkpoints/rebot-pickup/phase2-*.npz
+data/checkpoints/rebot-pickup/*-features.npz
+data/checkpoints/rebot-pickup/*-trace.jsonl
+
+# Nested simulator is published as branch fly-brain-grok on monomyth/rebot-motion-lab
+rebot-motion-lab-grok/
+
+# Weights on Hugging Face (https://huggingface.co/monomyth/fly-brain-grok)
+data/checkpoints/rebot-pickup/*.npz
+data/checkpoints/rebot-pickup/*-trace.jsonl
+data/checkpoints/rebot-pickup/collect-*.json
+data/checkpoints/rebot-pickup/dn-*.json
+data/checkpoints/rebot-pickup/eval-*.json
+!data/checkpoints/rebot-pickup/eval-size20.json
+data/checkpoints/rebot-pickup/phase2-*.json
+data/checkpoints/rebot-pickup/teacher-*.json
+data/checkpoints/rebot-pickup/stale-*.json
+data/checkpoints/rebot-pickup/learn-vs-shuffle.json
+data/checkpoints/rebot-pickup/audit-leg-mn.json
+data/checkpoints/rebot-pickup/kc-mbon-*.npz

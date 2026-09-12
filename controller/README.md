@@ -1,0 +1,34 @@
+# MaleCNS controller
+
+External Python process for the grok ReBot lab. No connectome code lives in `rebot-motion-lab-grok`.
+
+Launching the simulator and running a simulation are **separate**:
+
+```sh
+export MALECNS_HOME=/Users/monomyth/code/data/malecns
+export FLYBRAIN_DATA=/Users/monomyth/code/grok/fly-brain/data
+cd /Users/monomyth/code/grok/fly-brain/controller
+source .venv/bin/activate
+
+# 1. App (Dock icon)
+bash ../rebot-motion-lab-grok/scripts/wrap-debug-app.sh   # after a Swift rebuild
+python scripts/open_lab.py
+# or: open "../rebot-motion-lab-grok/dist/ReBot Motion Lab Grok.app"
+
+# 2. Simulation against that open window
+#    UI: Place cube → Run fly brain
+python scripts/run_policy.py          # attach only; does not launch or move the cube
+python scripts/run_teacher.py         # scripted pick; still needs the app already open
+```
+
+Other:
+
+```sh
+python -m malecns_cache.lockfile
+python -m malecns_cache.prepare
+python -m pytest
+python scripts/run_silence.py
+python scripts/train_readout.py
+```
+
+Prepared graph: **166,700** neurons, **25,582,938** signed edges (`prepared/malecns-v1.0-graph.npz`).

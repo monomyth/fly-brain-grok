@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What is not working — MaleCNS fly brain on ReBot</title>
+<style>
+  :root {
+    --bg: #120b0b;
+    --panel: #1c1414;
+    --line: #3a2a2a;
+    --red: #ff6b6b;
+    --ink: #f3e8e8;
+    --muted: #b19898;
+    --warn: #ffb020;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--ink);
+    font: 18px/1.35 "SF Pro Text", "Helvetica Neue", sans-serif; }
+  .page { padding: 36px 44px 28px; height: 1080px; display: flex; flex-direction: column; gap: 20px; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid var(--red); padding-bottom: 14px; }
+  h1 { font-size: 36px; font-weight: 700; letter-spacing: -0.03em; }
+  h1 span { color: var(--red); }
+  .sub { color: var(--muted); font-size: 16px; text-align: right; max-width: 760px; }
+  .badge { display: inline-block; background: #331818; color: var(--red); border: 1px solid #6a3232; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  .box h2 { font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--red); margin-bottom: 10px; }
+  .box p { font-size: 16px; margin-bottom: 8px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 14px; color: var(--warn); }
+  .why { color: var(--muted); font-size: 15px; }
+  footer { color: var(--muted); font-size: 13px; }
+  ol { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <div class="badge">Broken or not claimed</div>
+      <h1>Same stack: what is <span>not working</span></h1>
+    </div>
+    <p class="sub">These are measured gaps, not guesses. The 20 mm pinch-and-lift can succeed and still fail the items below.</p>
+  </header>
+
+  <div class="grid">
+    <div class="box">
+      <h2>1. Cube is never let go</h2>
+      <p>After a hold, <code>run_dn_bus.py</code> finally applies preset Folded (gripper 0 mm) while the cube is still attached.</p>
+      <p class="why">Last eval-size20 tick 36: attached true, gripper 20.02 mm. Grasp only releases if opening ≥ cube width + 12 mm. Folded closes, so the cube stays in the jaws.</p>
+    </div>
+    <div class="box">
+      <h2>2. Moved cube is not followed</h2>
+      <p>Approach, <code>hold_pad_dx</code>, and <code>hold_pad_dy</code> aim at CLI args.x / args.y (default 280 mm, 0 mm), not live <code>objects.cube.center_mm</code>.</p>
+      <p class="why">If you drag the cube in the simulator after spawn, the bus still rails to the spawn XY. It will not pick the new place.</p>
+    </div>
+    <div class="box">
+      <h2>3. Dopamine is not learned</h2>
+      <p>Episode flag <code>da_learned</code> is false. No freeze / shuffle / erase of KC→MBON that changed pick or abort rate.</p>
+      <p class="why">Plan: PAM-like / PPL1-like pulse on existing KC→MBON at trial end. That ablation has not been shown.</p>
+    </div>
+    <div class="box">
+      <h2>4. Leg motor neurons do not steer</h2>
+      <p>T1 <code>vnc_motor</code> mean Hz is logged (last episode ~689 Hz). It is not mapped to TCP or joints.</p>
+      <p class="why">The B601 unpacker is lab IK. Putting T1 MN rates on the joystick is the wrong plant for this LIF.</p>
+    </div>
+    <div class="box">
+      <h2>5. Jaws do not open after the pinch</h2>
+      <p>U still emits negative <code>dgrip</code> after attach (~−7.9 mm). <code>grip_target_mm</code> floors at cube width (20 mm), so the gripper never opens during the episode.</p>
+      <p class="why">Release is not in the distilled map. Cleanup never opens to 90 mm before Folded.</p>
+    </div>
+    <div class="box">
+      <h2>6. Not the full fly, not a moved-cube policy</h2>
+      <p>Live plant is a 59,740-cell crop, not all ~166k MaleCNS neurons. Overlay / k-NN / quintic are teacher and do not count as <code>fly_picked</code>.</p>
+      <p class="why">keep_level cannot pinch a 20 mm table cube: link5 hits the floor below ~42 mm TCP. Fingertips-down is required. That is geometry, not vision.</p>
+    </div>
+  </div>
+
+  <div class="box" style="min-height:auto">
+    <h2>What a passing “let go + moved cube” test would require</h2>
+    <ol>
+      <li>After hold ≥ 2 s, open ≥ 32 mm (20 mm cube + 12 mm release) so Grasp detaches; cube falls. Then Folded.</li>
+      <li>Each tick, read live cube XY from state and aim pads there — not frozen <code>args.x, args.y</code>.</li>
+      <li>Retrain distill on those traces. Do not score overlay or <code>|dz|</code> as fly.</li>
+    </ol>
+  </div>
+
+  <footer>Sources: run_dn_bus.py finally → apply_preset Folded · hold_pad_dx/dy(cube_x=args.x) · unpack.py dgrip from DNxl · Grasp.releaseOpeningMM = width+12 · eval-size20-trace.jsonl last row attached=true gripper=20.02 · da_learned false in eval-size20.json</footer>
+</div>
+</body>
+</html>
