@@ -22,8 +22,10 @@ from arm.log import g_hash
 from arm.score import (
     ActingMap,
     bus_commanded_plus_z,
+    da_learned,
     fly_picked,
     lift_without_plus_z,
+    live_mbon_gate_used,
     open_gripper_tick0_attach,
     overlay_plus8_lift,
     score_episode,
@@ -33,7 +35,9 @@ from arm.score import (
 from arm.teacher import teacher_target
 from arm.unpack import U0, UParams, command_is_abort, command_saturated, grip_target_mm, unpack
 from rebot_adapter.pick import (
+    FINGERS_DOWN_Z_MM,
     NEAR_PAD_MM,
+    READY_Z_MM,
     episode_outcome,
     hold_pad_dx,
     hold_pad_dy,
@@ -43,6 +47,9 @@ from rebot_adapter.pick import (
     pad_aim_x_mm,
     pad_y_tol_mm,
     pick_success,
+    scripted_start_waypoints,
+    servo_orientation,
+    shape_pad_command,
     tip_grasp_z_mm,
 )
 from runtime.decoder import ArmCommand
@@ -150,8 +157,35 @@ def test_da_learned_only_from_ablation():
         g_trained=True,
         ablation_changed=False,
     )
+    overlay = score_episode(
+        acting_map=ActingMap.overlay,
+        kinematic_success=True,
+        teacher_in_path=True,
+        mean_dn_hz=20.0,
+        black_dn_hz=0.0,
+        g_trained=True,
+        ablation_changed=True,
+    )
+    knn = score_episode(
+        acting_map=ActingMap.knn,
+        kinematic_success=True,
+        mean_dn_hz=20.0,
+        black_dn_hz=0.0,
+        g_trained=True,
+        ablation_changed=True,
+    )
     assert ok.da_learned is True
     assert no.da_learned is False
+    assert overlay.da_learned is False
+    assert knn.da_learned is False
+    assert overlay.fly_picked is False
+    assert knn.fly_picked is False
+    assert da_learned(ablation_changed=True) is False
+    assert da_learned(ablation_changed=None, acting_map=ActingMap.dn_bus) is False
+    assert da_learned(ablation_changed=True, acting_map=ActingMap.dn_bus) is True
+    assert da_learned(ablation_changed=True, acting_map=ActingMap.leg_mn) is False
+    assert da_learned(ablation_changed=True, acting_map=ActingMap.idle) is False
+    assert da_learned(ablation_changed=True, acting_map=ActingMap.dn_bus, teacher_in_path=True) is False
 
 
 def test_episode_outcome_dn_bus_flags():
@@ -315,15 +349,19 @@ def test_skip_checkpoint_retires_flood_npz(tmp_path):
     np.savez(npz, g=np.ones(3, dtype=np.float32))
     js = tmp_path / "g-distill.json"
     js.write_text(json_lib.dumps({"ok": True, "skipped": False, "g_hash": "5163abe549abd9fa"}) + "\n")
-    out = write_skip_checkpoint(json_path=js, npz=npz, payload={"reason": "hop_probe not green"})
+    out = write_skip_checkpoint(
+        json_path=js, npz=npz, payload={"reason": "hop_probe not green", "da_learned": True}
+    )
     assert out["ok"] is False
     assert out["skipped"] is True
     assert out["fly_picked"] is False
+    assert out["da_learned"] is False
     assert not npz.is_file()
     assert (tmp_path / "g-distill.agc-flood.npz").is_file()
     saved = json_lib.loads(js.read_text())
     assert saved["ok"] is False and saved["skipped"] is True
     assert saved["fly_picked"] is False
+    assert saved["da_learned"] is False
 
 
 def test_live_rewards_keeps_child_only_after_its_own_R(tmp_path, monkeypatch):
@@ -580,24 +618,185 @@ def test_hold_pad_dy_stops_laterality_drift():
     assert toward.dy_mm > 0.0
 
 
-def test_dn_bus_live_applies_hold_pad_dy():
-    src = (Path(__file__).resolve().parents[1] / "arm" / "run_dn_bus.py").read_text()
-    assert "hold_pad_dy" in src
-    assert "hold_pad_dx" in src
-    assert "optical_close_gate" in src
-    assert "jaw_z_floor_mm" in src
-    assert "tip_grasp_z_mm" in src
-    assert "pad_aim_x_mm" in src
-    assert "rebot_move_to_pose" in src
-    assert "rebot_move_to_position" not in src
-    assert '"fingers_down"' in src
-    assert "pitch_tips" not in src
-    assert '"yaw_deg": 0' in src
-    assert '"keep_level": True' in src
-    assert "abs(dz)" not in src
-    assert "attached=contact" in src
-    assert "ticks=log" in src
-    assert "dz = abs" not in src
+def test_shape_pad_command_holds_pad_and_keeps_signed_dz():
+    cmd = ArmCommand(1.5, 8.0, -4.0, -8.0)
+    high = {"x": 280.0, "y": 0.0, "z": 80.0}
+    out = shape_pad_command(
+        cmd,
+        high,
+        cube_xy=(280.0, 0.0),
+        size_mm=20.0,
+        cube_z_mm=9.0,
+        pad_x=280.0,
+    )
+    assert out.dy_mm == 0.0
+    assert out.dx_mm == 0.0
+    assert out.dz_mm == -4.0
+    assert out.dgrip_mm == 0.0
+    low = {"x": 280.0, "y": 12.0, "z": 20.0}
+    pinched = shape_pad_command(
+        ArmCommand(1.5, 8.0, -4.0, -8.0),
+        low,
+        cube_xy=(280.0, 0.0),
+        size_mm=20.0,
+        cube_z_mm=9.0,
+        pad_x=280.0,
+    )
+    assert pinched.dy_mm < 0.0
+    assert pinched.dgrip_mm == -8.0
+
+
+def test_scripted_start_20mm_is_farther_than_pad():
+    wps = scripted_start_waypoints(280.0, 0.0, 20.0)
+    assert len(wps) == 1
+    assert wps[0]["z_mm"] == READY_Z_MM
+    assert wps[0]["keep_level"] is True
+    assert "fingers_down" not in wps[0]
+    assert wps[0]["z_mm"] > tip_grasp_z_mm(20.0)
+    big = scripted_start_waypoints(280.0, 0.0, 40.0)
+    assert len(big) == 2
+    assert big[0]["z_mm"] == READY_Z_MM
+    assert big[1]["z_mm"] == tip_grasp_z_mm(40.0)
+    assert servo_orientation(size_mm=20.0, tcp_z=READY_Z_MM) == {"keep_level": True}
+    assert servo_orientation(size_mm=20.0, tcp_z=FINGERS_DOWN_Z_MM - 1.0) == {"fingers_down": True}
+    assert servo_orientation(size_mm=40.0, tcp_z=20.0) == {"keep_level": True}
+
+
+def test_command_path_gate_publishes_then_gates(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm import run_dn_bus as mod
+    from arm.crop import as_connectome, write_stub_crop
+    from arm.hop_probe import _synthetic_cube
+    from arm.lif_crop import CropLIF, window_hz
+    from runtime.plasticity import KCToMBON
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    crop = write_stub_crop(tmp_path / "crop")
+    lif = CropLIF(crop, synaptic_gain=8.0, nsteps=50)
+    memory = KCToMBON(as_connectome(crop), lif.brain)
+    assert memory.slots.size > 0
+    order: list[str] = []
+    real_step = lif.step_vision
+    real_pub = mod.publish_crop
+    real_dg = mod.drive_and_gate
+
+    def step(*a, **k):
+        order.append("vision")
+        assert k.get("drive_kc") is False
+        return real_step(*a, **k)
+
+    def pub(*a, **k):
+        order.append("publish")
+        return real_pub(*a, **k)
+
+    def dg(*a, **k):
+        order.append("gate")
+        return real_dg(*a, **k)
+
+    lif.step_vision = step  # type: ignore[method-assign]
+    monkeypatch.setattr(mod, "publish_crop", pub)
+    monkeypatch.setattr(mod, "drive_and_gate", dg)
+    front = _synthetic_cube()
+    lif.reset_episode()
+    baseline = float(lif.rates().scored_mean_hz)
+    rates, gate = mod.command_path_gate(lif, memory, front, front)
+    assert order == ["vision", "publish", "gate"]
+    assert float(rates.scored_mean_hz) > baseline
+    assert abs(gate - 1.0) >= 1e-3
+    silent = float(np.mean(window_hz(lif.brain)[memory.kc]))
+    assert silent < 1.0
+
+
+def test_dn_bus_live_shapes_pad_and_gates_on_fake(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from malecns_cache import paths as cache_paths
+    from arm import run_dn_bus as mod
+    from rebot_adapter.teacher import cube
+    from test_mcp_fake import FakeRobot
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    robot = FakeRobot()
+    robot._state["objects"]["cube"]["size_mm"] = 20
+    robot._state["objects"]["cube"]["center_mm"] = {"x": 280.0, "y": 0.0, "z": 9.0}
+    shaped = {"n": 0}
+    real_shape = mod.shape_pad_command
+
+    def wrap_shape(*a, **k):
+        shaped["n"] += 1
+        return real_shape(*a, **k)
+
+    monkeypatch.setattr(mod, "shape_pad_command", wrap_shape)
+    args = SimpleNamespace(
+        mcp=tmp_path / "missing-mcp",
+        ticks=1,
+        steps=100,
+        x=280.0,
+        y=0.0,
+        size=20.0,
+        hold=2.0,
+        teacher=False,
+        silence_dn=False,
+        g_init=False,
+        gains=None,
+        stub=True,
+        episodes=1,
+    )
+    summary, log = mod.run_live(args, client=robot)
+    names = [name for name, _ in robot.calls]
+    assert "rebot_move_to_position" not in names
+    assert "rebot_move_to_pose" in names
+    pose = next(args for name, args in robot.calls if name == "rebot_move_to_pose")
+    assert pose.get("z_mm") == READY_Z_MM
+    assert pose.get("keep_level") is True
+    servo = next(args for name, args in robot.calls if name == "rebot_servo_tcp")
+    assert servo.get("keep_level") is True
+    assert "fingers_down" not in servo
+    assert "pitch_tips" not in servo
+    assert log
+    assert log[0]["acting_map"] == "dn_bus"
+    assert shaped["n"] >= 1
+    assert log[0]["command"]["dy_mm"] == 0.0
+    assert abs(float(log[0]["mbon_gate"]) - 1.0) >= 1e-3
+    assert live_mbon_gate_used(log) is True
+    assert isinstance(summary["da_learned"], bool)
+    c = cube(robot.state())
+    assert c["attached"] is False
+    assert abs(float(c["center_mm"]["x"]) - 280.0) < 1e-9
+    assert float(c["center_mm"]["z"]) < 20.0
+
+
+def test_main_episodes_calls_run_live_n_times(tmp_path, monkeypatch):
+    import json as json_lib
+
+    from malecns_cache import paths as cache_paths
+    from arm import run_dn_bus as mod
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    n = {"i": 0}
+
+    def fake_live(args, client=None):
+        n["i"] += 1
+        return (
+            {
+                "acting_map": "dn_bus",
+                "fly_picked": False,
+                "da_learned": False,
+                "skipped": False,
+            },
+            [],
+        )
+
+    monkeypatch.setattr(mod, "run_live", fake_live)
+    rc = mod.main(["--stub", "--ticks", "1", "--steps", "100", "--episodes", "2", "--tag", "ep2"])
+    assert rc == 0
+    assert n["i"] == 2
+    saved = json_lib.loads((tmp_path / "checkpoints" / "rebot-pickup" / "ep2.json").read_text())
+    assert saved["episodes"] == 2
+    assert saved["da_learned"] is False
 
 
 def test_hold_pad_dx_keeps_hanging_jaws_on_pad():
@@ -913,6 +1112,79 @@ def test_distill_and_operant_closed_until_live_go(tmp_path, monkeypatch):
     assert o["skipped"] is True and o.get("da_learned") is False
 
 
+def test_operant_da_learned_requires_pulse_move(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm.crop import GAIN_CLASSES
+    from arm.hop_probe import _synthetic_cube
+    from arm.train_operant import operant
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    front = _synthetic_cube()
+    g = np.ones(len(GAIN_CLASSES), dtype=np.float32)
+    rest = operant(
+        stub=True,
+        live_rewards=[{"g": g, "front_rgb": front, "grip_rgb": front, "R": 0.0}],
+    )
+    assert rest["skipped"] is False
+    assert rest["da_learned"] is False
+    assert rest["fly_picked"] is False
+    pulsed = operant(
+        stub=True,
+        live_rewards=[{"g": g, "front_rgb": front, "grip_rgb": front, "R": 1.0}],
+    )
+    assert pulsed["skipped"] is False
+    assert pulsed["fly_picked"] is False
+    assert pulsed["da_learned"] is True
+    assert abs(float(pulsed["mbon_gate_before"]) - float(pulsed["mbon_gate_after_ablate"])) >= 0.02
+    assert live_mbon_gate_used([{"mbon_gate": pulsed["mbon_gate_before"]}]) is True
+
+
+def test_operant_da_learned_denies_unity_live_gate(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm.crop import GAIN_CLASSES
+    from arm.hop_probe import _synthetic_cube
+    from arm import train_operant as to
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    monkeypatch.setattr(to, "drive_and_gate", lambda *a, **k: 1.0)
+    monkeypatch.setattr(to, "terminal_da_changed", lambda *a, **k: True)
+    front = _synthetic_cube()
+    g = np.ones(len(GAIN_CLASSES), dtype=np.float32)
+    out = to.operant(
+        stub=True,
+        live_rewards=[{"g": g, "front_rgb": front, "grip_rgb": front, "R": 1.0}],
+    )
+    assert out["skipped"] is False
+    assert out["da_learned"] is False
+    assert out["fly_picked"] is False
+
+
+def test_terminal_da_changed_skips_teacher_and_zero_reward(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm.crop import as_connectome, write_stub_crop
+    from arm.hop_probe import _synthetic_cube
+    from arm.lif_crop import CropLIF
+    from arm.train_operant import terminal_da_changed
+    from arm.unpack import U0, drive_and_gate
+    from runtime.plasticity import KCToMBON
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    crop = write_stub_crop(tmp_path / "crop")
+    lif = CropLIF(crop, synaptic_gain=8.0, nsteps=50)
+    memory = KCToMBON(as_connectome(crop), lif.brain)
+    assert memory.slots.size > 0
+    lif.brain.weights.data[memory.slots] = 80.0
+    front = _synthetic_cube()
+    lif.step_vision(front, front, drive_kc=False)
+    drive_and_gate(lif.brain, memory, front)
+    assert terminal_da_changed(lif, memory, front, front, U0, False, teacher=True, reward=1.0) is False
+    assert terminal_da_changed(lif, memory, front, front, U0, False, teacher=False, reward=0.0) is False
+    assert terminal_da_changed(lif, memory, front, front, U0, False, teacher=False, reward=1.0) is True
+
+
 def test_load_optical_keeps_empty_table_when_chroma_ranks_cube(tmp_path):
     import json as json_lib
 
@@ -1151,6 +1423,7 @@ def test_live_dn_bus_refuses_when_hop_red(tmp_path, monkeypatch):
     saved = json_lib.loads((tmp_path / "checkpoints" / "rebot-pickup" / "refused.json").read_text())
     assert saved["skipped"] is True
     assert saved["fly_picked"] is False
+    assert saved["da_learned"] is False
     assert saved["acting_map"] == "dn_bus"
 
 
@@ -1409,10 +1682,12 @@ def test_fly_picked_rejects_negative_dz_rewrite_lift():
         black_dn_hz=0.0,
         dn_l2=40.0,
         g_trained=True,
+        ablation_changed=True,
         ticks=ticks,
     )
     assert scored.fly_picked is False
     assert scored.teacher_in_path is True
+    assert scored.da_learned is False
 
 
 def test_fly_picked_rejects_tick0_open_gripper_attach():
@@ -1430,9 +1705,11 @@ def test_fly_picked_rejects_tick0_open_gripper_attach():
         black_dn_hz=0.0,
         dn_l2=40.0,
         g_trained=True,
+        ablation_changed=True,
         ticks=ticks,
     )
     assert scored.fly_picked is False
+    assert scored.da_learned is False
 
 
 def test_fly_picked_rejects_overlay_plus8_even_if_map_says_dn_bus():
@@ -1450,9 +1727,11 @@ def test_fly_picked_rejects_overlay_plus8_even_if_map_says_dn_bus():
         black_dn_hz=0.0,
         dn_l2=40.0,
         g_trained=True,
+        ablation_changed=True,
         ticks=ticks,
     )
     assert scored.fly_picked is False
+    assert scored.da_learned is False
 
 
 def test_fly_picked_accepts_bus_plus_z_after_pinch():
@@ -1535,3 +1814,329 @@ def test_load_u_pads_short_vector_contact_zero(tmp_path):
     u = load_u(path)
     assert u.n_params() == 12
     assert abs(float(u.w_contact)) < 1e-9
+
+
+def test_scene_cube_xy_keeps_dragged_cube():
+    from rebot_adapter.pick import scene_cube_xy
+
+    x, y, already = scene_cube_xy(None, 280.0, 0.0)
+    assert (x, y, already) == (280.0, 0.0, False)
+    state = {"objects": {"cube": {"present": True, "center_mm": {"x": 350.0, "y": 12.0, "z": 19.0}}}}
+    x, y, already = scene_cube_xy(state, 280.0, 0.0)
+    assert already is True
+    assert abs(x - 350.0) < 1e-9 and abs(y - 12.0) < 1e-9
+    missing = {"objects": {"cube": {"present": False, "center_mm": {"x": 1.0, "y": 1.0, "z": 1.0}}}}
+    x, y, already = scene_cube_xy(missing, 280.0, 0.0)
+    assert already is False and abs(x - 280.0) < 1e-9
+    wreck = {"objects": {"cube": {"present": True, "attached": False, "center_mm": {"x": 200.0, "y": -54.0, "z": 15.0}, "size_mm": 20}}}
+    x, y, already = scene_cube_xy(wreck, 280.0, 0.0)
+    assert already is False
+    air = {"objects": {"cube": {"present": True, "attached": True, "center_mm": {"x": 280.0, "y": 0.0, "z": 120.0}, "size_mm": 20}}}
+    assert scene_cube_xy(air, 280.0, 0.0)[2] is False
+
+
+def test_publish_crop_scatters_to_parent_index(tmp_path, monkeypatch):
+    import struct
+
+    from malecns_cache import paths as cache_paths
+    from malecns_cache.somas import ACTIVITY_MAGIC
+    from arm.crop import write_stub_crop
+    from arm.lif_crop import CropLIF
+    from runtime.broadcast import publish_crop
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    crop = write_stub_crop(tmp_path / "crop")
+    lif = CropLIF(crop, nsteps=50)
+    lif.inject(np.array([0], dtype=np.int32), 3.0, nsteps=50)
+    publish_crop(lif)
+    blob = (tmp_path / "live" / "activity.bin").read_bytes()
+    assert blob[:4] == ACTIVITY_MAGIC
+    n = struct.unpack_from("<I", blob, 4)[0]
+    rates = np.frombuffer(blob, dtype=np.float32, offset=16, count=n)
+    assert float(rates[crop.parent_index].max()) > 0.0
+
+
+def test_kc_mbon_gate_ablation_drops_to_one():
+    from arm.unpack import kc_mbon_gate
+
+    hz = np.array([0.0, 80.0], dtype=np.float64)
+    w = np.array([0.0, 10.0], dtype=np.float64)
+    slots = np.array([1], dtype=np.int32)
+    pre = np.array([1], dtype=np.int32)
+    on = kc_mbon_gate(hz, w, slots, pre)
+    off = kc_mbon_gate(hz, np.zeros_like(w), slots, pre)
+    assert on > 1.0
+    assert abs(off - 1.0) < 1e-6
+    assert abs(kc_mbon_gate(hz, w, slots, np.array([99], dtype=np.int32)) - 1.0) < 1e-6
+    assert abs(kc_mbon_gate(hz, w, np.array([99], dtype=np.int32), pre) - 1.0) < 1e-6
+    assert abs(kc_mbon_gate(hz, w, slots, np.array([1, 1], dtype=np.int32)) - 1.0) < 1e-6
+
+
+def test_mbon_gate_scales_unpack_command():
+    from arm.bus import BusRates
+    from arm.unpack import mbon_gate, unpack
+
+    idx = np.array([0], dtype=np.int32)
+    silent = mbon_gate(np.array([0.0], dtype=np.float32), idx)
+    loud = mbon_gate(np.array([80.0], dtype=np.float32), idx)
+    assert abs(silent - 1.0) < 1e-6
+    assert loud > silent
+    vec = np.array([400.0, 400.0, 400.0, 400.0, 0.0, 400.0, 400.0, 400.0], dtype=np.float32)
+    rates = BusRates(
+        vec=vec,
+        pools={},
+        t1_mn_hz=0.0,
+        abort=False,
+        scored_mean_hz=400.0,
+        scored=vec,
+    )
+    a = unpack(rates, gate=1.0)
+    b = unpack(rates, gate=loud)
+    assert abs(b.dx_mm) > abs(a.dx_mm)
+
+
+def test_mbon_ablation_changed_on_stub_crop(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm.crop import write_stub_crop
+    from arm.lif_crop import CropLIF
+    from arm.unpack import mbon_ablation_changed
+    from runtime.plasticity import KCToMBON
+    from arm.crop import as_connectome
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    crop = write_stub_crop(tmp_path / "crop")
+    lif = CropLIF(crop, synaptic_gain=8.0, nsteps=50)
+    memory = KCToMBON(as_connectome(crop), lif.brain)
+    if memory.slots.size:
+        lif.brain.weights.data[memory.slots] = 80.0
+    from arm.hop_probe import _synthetic_cube
+
+    front = _synthetic_cube()
+    grip = front.copy()
+    changed = mbon_ablation_changed(lif, front, grip, attached=False, memory=memory)
+    assert changed is True
+    from arm.lif_crop import window_hz
+    from arm.unpack import drive_and_gate, kc_mbon_gate
+
+    drive_and_gate(lif.brain, memory, front, accumulate=False)
+    drive = np.array(lif.brain.i_ext, copy=True)
+    g0 = kc_mbon_gate(drive, lif.brain.weights.data, memory.slots, memory.pre)
+    saved = np.array(lif.brain.weights.data[memory.slots], copy=True)
+    lif.brain.weights.data[memory.slots] = 0
+    g1 = kc_mbon_gate(drive, lif.brain.weights.data, memory.slots, memory.pre)
+    lif.brain.weights.data[memory.slots] = saved
+    assert abs(g0 - g1) >= 0.02
+    lif.reset_episode()
+    lif.step_vision(front, grip, drive_kc=False)
+    silent = kc_mbon_gate(window_hz(lif.brain), lif.brain.weights.data, memory.slots, memory.pre)
+    assert abs(silent - 1.0) < 1e-3
+
+
+def test_mbon_ablation_unchanged_when_weights_zero(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm.crop import as_connectome, write_stub_crop
+    from arm.hop_probe import _synthetic_cube
+    from arm.lif_crop import CropLIF
+    from arm.unpack import mbon_ablation_changed
+    from runtime.plasticity import KCToMBON
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    crop = write_stub_crop(tmp_path / "crop")
+    lif = CropLIF(crop, synaptic_gain=8.0, nsteps=50)
+    memory = KCToMBON(as_connectome(crop), lif.brain)
+    if memory.slots.size:
+        lif.brain.weights.data[memory.slots] = 0
+    front = _synthetic_cube()
+    assert mbon_ablation_changed(lif, front, front.copy(), attached=False, memory=memory) is False
+
+
+def test_drive_and_gate_uses_kenyon_iext_not_silent_kc_hz(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm.crop import as_connectome, write_stub_crop
+    from arm.hop_probe import _synthetic_cube
+    from arm.lif_crop import CropLIF, window_hz
+    from arm.unpack import drive_and_gate, kc_mbon_gate
+    from runtime.plasticity import KCToMBON
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    crop = write_stub_crop(tmp_path / "crop")
+    lif = CropLIF(crop, synaptic_gain=8.0, nsteps=50)
+    memory = KCToMBON(as_connectome(crop), lif.brain)
+    assert memory.slots.size > 0
+    lif.brain.weights.data[memory.slots] = 80.0
+    front = _synthetic_cube()
+    lif.reset_episode()
+    lif.step_vision(front, front, drive_kc=False)
+    silent = kc_mbon_gate(window_hz(lif.brain), lif.brain.weights.data, memory.slots, memory.pre)
+    gated = drive_and_gate(lif.brain, memory, front, accumulate=False)
+    assert abs(silent - 1.0) < 1e-3
+    assert gated > 1.02
+
+
+def test_drive_and_gate_cube_not_unity_and_pulse_moves(tmp_path, monkeypatch):
+    from malecns_cache import paths as cache_paths
+    from arm.crop import as_connectome, write_stub_crop
+    from arm.hop_probe import _synthetic_cube
+    from arm.lif_crop import CropLIF, window_hz
+    from arm.train_operant import pulse_da, terminal_da_changed
+    from arm.unpack import U0, drive_and_gate, mbon_ablation_changed, slots_moved
+    from runtime.plasticity import KCToMBON
+
+    monkeypatch.setenv("FLYBRAIN_DATA", str(tmp_path))
+    monkeypatch.setattr(cache_paths, "project_data", lambda: tmp_path)
+    crop = write_stub_crop(tmp_path / "crop")
+    lif = CropLIF(crop, synaptic_gain=8.0, nsteps=50)
+    memory = KCToMBON(as_connectome(crop), lif.brain)
+    assert memory.slots.size > 0
+    front = _synthetic_cube()
+    black = np.zeros_like(front)
+    lif.reset_episode()
+    g_black = drive_and_gate(lif.brain, memory, black, accumulate=False)
+    g_cube = drive_and_gate(lif.brain, memory, front, accumulate=True)
+    assert abs(g_black - 1.0) < 1e-3
+    assert abs(g_cube - 1.0) >= 1e-3
+    before = np.array(lif.brain.weights.data[memory.slots], copy=True)
+    nsyn = pulse_da(memory, 1.0)
+    after = np.array(lif.brain.weights.data[memory.slots], copy=True)
+    assert nsyn == int(memory.slots.size)
+    assert slots_moved(before, after)
+    assert mbon_ablation_changed(lif, front, front.copy(), attached=False, memory=memory) is True
+    assert terminal_da_changed(lif, memory, front, front, U0, False, teacher=False, reward=1.0) is True
+    lif.reset_episode()
+    lif.step_vision(front, front, drive_kc=False)
+    silent = float(np.mean(window_hz(lif.brain)[memory.kc]))
+    assert silent < 1.0
+
+
+def test_da_learned_denies_unity_live_gate_even_if_ablation_painted():
+    ticks = []
+    for i in range(16):
+        row = _tick(
+            i,
+            attached=i >= 1,
+            cube_z=min(120.0, 9.0 + 8.0 * max(i - 1, 0)),
+            gripper=90.0 if i == 0 else 21.0,
+            dz=-4.0 if i == 0 else 4.0,
+            tcp_z=min(140.0, 8.0 + 8.0 * max(i - 1, 0)),
+        )
+        if i == 0:
+            row["attached"] = False
+        row["mbon_gate"] = 1.0
+        ticks.append(row)
+    unused = score_episode(
+        acting_map=ActingMap.dn_bus,
+        kinematic_success=True,
+        teacher_in_path=False,
+        mean_dn_hz=40.0,
+        black_dn_hz=0.0,
+        dn_l2=40.0,
+        g_trained=True,
+        ablation_changed=True,
+        ticks=ticks,
+    )
+    assert live_mbon_gate_used(ticks) is False
+    assert unused.fly_picked is True
+    assert unused.da_learned is False
+    for row in ticks:
+        row["mbon_gate"] = 1.12
+    used = score_episode(
+        acting_map=ActingMap.dn_bus,
+        kinematic_success=True,
+        teacher_in_path=False,
+        mean_dn_hz=40.0,
+        black_dn_hz=0.0,
+        dn_l2=40.0,
+        g_trained=True,
+        ablation_changed=True,
+        ticks=ticks,
+    )
+    assert live_mbon_gate_used(ticks) is True
+    assert used.fly_picked is True
+    assert used.da_learned is True
+
+
+def test_episode_summary_extra_cannot_paint_flags():
+    from arm.log import episode_summary
+
+    score = score_episode(
+        acting_map=ActingMap.dn_bus,
+        kinematic_success=False,
+        mean_dn_hz=20.0,
+        black_dn_hz=0.0,
+        g_trained=True,
+        ablation_changed=False,
+    )
+    out = episode_summary(
+        score=score,
+        ticks=[],
+        g_hash_s="a",
+        g_hash_init="b",
+        extra={
+            "da_learned": True,
+            "fly_picked": True,
+            "lab_picked": True,
+            "acting_map": "overlay",
+            "hold_s": 2.0,
+        },
+    )
+    assert out["da_learned"] is False
+    assert out["fly_picked"] is False
+    assert out["lab_picked"] is False
+    assert out["acting_map"] == "dn_bus"
+    assert out["hold_s"] == 2.0
+
+
+def test_historical_loop_da2_rescore_denies_unused_da():
+    import json as json_lib
+
+    import pytest
+
+    path = Path(__file__).resolve().parents[2] / "data" / "checkpoints" / "rebot-pickup" / "loop-da2.json"
+    if not path.is_file():
+        pytest.skip("loop-da2.json not in tree")
+    raw = path.read_bytes()
+    blob = json_lib.loads(raw)
+    ticks = []
+    for key in ("tick_log", "tick_log_head", "tick_log_tail"):
+        ticks.extend(blob.get(key) or [])
+    assert ticks
+    assert live_mbon_gate_used(ticks) is False
+    scored = score_episode(
+        acting_map=blob.get("acting_map") or "dn_bus",
+        kinematic_success=True,
+        mean_dn_hz=float(blob.get("mean_dn_hz") or 0.0),
+        black_dn_hz=float(blob.get("black_dn_hz") or 0.0),
+        dn_l2=blob.get("dn_l2"),
+        g_trained=True,
+        ablation_changed=True,
+        ticks=ticks,
+    )
+    assert scored.da_learned is False
+    assert path.read_bytes() == raw
+
+
+def test_score_py_is_only_da_learned_true_assignment():
+    root = Path(__file__).resolve().parents[1]
+    needles = (
+        "da_learned = True",
+        "da_learned=True",
+        '"da_learned": True',
+        '["da_learned"] = True',
+        "['da_learned'] = True",
+    )
+    hits = []
+    for sub in ("arm", "rebot_adapter", "runtime", "scripts"):
+        base = root / sub
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.py"):
+            if "tests" in path.parts:
+                continue
+            text = path.read_text()
+            if any(n in text for n in needles):
+                hits.append(str(path))
+    assert hits == [], hits

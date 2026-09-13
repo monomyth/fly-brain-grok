@@ -18,7 +18,7 @@ MaleCNS as an **external** controller for the [ReBot B601-DM](https://github.com
 
 ## What works
 
-Last live 20 mm episode (`eval-size20`): `acting_map=dn_bus` on 37/37 ticks, first attach at tick 19 (gripper 20.9 mm), first +Z at tick 20, cube z 121 mm, `tcp_level`, hold 2.8 s. Attach is a pinch of the **solid** (corner or edge is enough). Overlay / k-NN / `|dz|` rewrite are not this path.
+Last live 20 mm episode (`loop-da2`): `acting_map=dn_bus` on 29/29 ticks, `fly_picked`, cube z 111 mm, `tcp_level`, hold 2.0 s. Attach is a pinch of the **solid** (corner or edge is enough). Overlay / k-NN / `|dz|` rewrite are not this path. Prior `eval-size20`: attach tick 19, cube z 121 mm, hold 2.8 s.
 
 - Crop LIF: 59,740 neurons, 150 steps/tick, Front + Gripper JPEG (`apply:false`)
 - Scored DN bus: DNfl, DNxl, DNa01, DNa02, DNp01 (abort), MDN, DNp07, DNp10
@@ -29,9 +29,7 @@ Last live 20 mm episode (`eval-size20`): `acting_map=dn_bus` on 37/37 ticks, fir
 
 ![Gaps](docs/preview/infographic-not-working.jpg)
 
-- After a hold, cleanup Folds with the gripper shut, so the cube is **not released**
-- Approach rails use spawn XY (default 280, 0), not a cube you drag in the UI
-- `da_learned` is false (no KC→MBON freeze/shuffle that changed pick rate)
+- `da_learned` is not claimed for `loop-da2` (that run logged `mbon_gate` 1.0). A new `--no-overlay` episode must gate from Kenyon current and move KC→MBON on the terminal pulse
 - T1 motor-neuron rates are logged, not the joystick
 - Live plant is the optic crop, not all ~166k MaleCNS cells
 

@@ -32,6 +32,7 @@ class KCToMBON:
         self.rest = np.asarray(rest, dtype=np.float32)
         self.trace = np.zeros(self.slots.size, dtype=np.float32)
         self.decay = np.float32(0.65)
+        self._pre_ready = False
 
     def pulse(self, amplitude: float) -> None:
         if self.ppl.size:
@@ -48,17 +49,35 @@ class KCToMBON:
         return np.clip(pre, 0, 4), np.clip(np.maximum(post, 0.25), 0, 4)
 
     def accumulate(self) -> None:
-        """Eligibility from this tick's KC × MBON duty. Call on every vision frame."""
+        """LIF-duty eligibility. Fallback when no Kenyon pre-trace was staged."""
         if self.slots.size == 0:
             return
         pre, post = self._pre_post()
         self.trace *= self.decay
         self.trace += pre * post
+        self._pre_ready = False
+
+    def accumulate_from_pre(self, pre_drive: np.ndarray) -> None:
+        """Eligibility from a KC drive vector (no extra LIF step)."""
+        if self.slots.size == 0 or pre_drive.size == 0:
+            return
+        drive = np.asarray(pre_drive, dtype=np.float32).reshape(-1)
+        if drive.size == self.brain.n:
+            v = np.clip(drive[self.pre], 0, 4)
+        elif drive.size == self.pre.size:
+            v = np.clip(drive, 0, 4)
+        else:
+            return
+        self.trace *= self.decay
+        self.trace += v * np.float32(0.25)
+        self._pre_ready = True
 
     def update(self, reward: float, eta: float = 2e-4) -> int:
         if self.slots.size == 0 or abs(reward) < 1e-6:
             return 0
-        self.accumulate()
+        if not self._pre_ready:
+            self.accumulate()
+        self._pre_ready = False
         duty = getattr(self.brain, "duty", self.brain.rate_hz)
         da_hz = float(np.mean(self.brain.rate_hz[self.ppl])) if self.ppl.size else 0.0
         da_duty = float(np.mean(duty[self.ppl])) if self.ppl.size and getattr(self.brain, "duty", None) is not None else 0.0

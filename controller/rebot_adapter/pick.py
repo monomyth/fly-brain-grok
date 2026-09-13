@@ -49,6 +49,104 @@ def dist_xy(tcp: dict, cube_xy: tuple[float, float]) -> float:
     return float(math.hypot(tcp["x"] - cube_xy[0], tcp["y"] - cube_xy[1]))
 
 
+def scene_cube_xy(state: dict | None, default_x: float, default_y: float) -> tuple[float, float, bool]:
+    """Reuse a table cube near the spawn line. Wrecked leftovers (air, attached, far Y) respawn."""
+    if not state:
+        return float(default_x), float(default_y), False
+    try:
+        c = state["objects"]["cube"]
+    except (KeyError, TypeError):
+        return float(default_x), float(default_y), False
+    if not c.get("present") or c.get("attached") or c.get("falling"):
+        return float(default_x), float(default_y), False
+    center = c.get("center_mm") or {}
+    if "x" not in center or "y" not in center:
+        return float(default_x), float(default_y), False
+    x, y, z = float(center["x"]), float(center["y"]), float(center.get("z") or 0.0)
+    size = float(c.get("size_mm") or 20.0)
+    if z > 0.5 * size + 15.0:
+        return float(default_x), float(default_y), False
+    if abs(y - float(default_y)) > 25.0 or abs(x - float(default_x)) > 120.0:
+        return float(default_x), float(default_y), False
+    return x, y, True
+
+
+def cleanup_episode(
+    client,
+    *,
+    x_mm: float | None = None,
+    y_mm: float | None = None,
+    size_mm: float | None = None,
+    open_s: float = 8.0,
+) -> None:
+    """Lab routing after the fly episode: open, fold, respawn table cube. Not a fly command."""
+
+    def _call(name: str, arguments: dict | None = None) -> dict | None:
+        try:
+            return client.call(name, arguments or {}, retries=1)
+        except TypeError:
+            return client.call(name, arguments or {})
+
+    def _state() -> dict | None:
+        for name in ("try_state", "state"):
+            fn = getattr(client, name, None)
+            if not callable(fn):
+                continue
+            try:
+                return fn()
+            except TypeError:
+                try:
+                    return fn(timeout=2)
+                except Exception:
+                    return None
+            except Exception:
+                return None
+        return None
+
+    _call("rebot_set_control_mode", {"mode": "scripted"})
+    _call("rebot_set_gripper", {"opening_mm": 90})
+    wait = getattr(client, "wait_stopped", None)
+    if callable(wait):
+        try:
+            wait(timeout=10)
+        except Exception:
+            pass
+    # Folded shuts the jaws; skip Fold unless the gripper actually opened.
+    opened = False
+    deadline = time.monotonic() + max(float(open_s), 0.0)
+    while True:
+        st = _state()
+        if st is not None and float(st.get("gripper_mm") or 0.0) >= 80.0:
+            opened = True
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    if opened:
+        apply = getattr(client, "apply_preset", None)
+        if callable(apply):
+            apply("Folded")
+        else:
+            _call("rebot_apply_preset", {"name": "Folded"})
+        if callable(wait):
+            try:
+                wait(timeout=15)
+            except Exception:
+                pass
+    if x_mm is not None and y_mm is not None:
+        _call(
+            "rebot_set_cube",
+            {
+                "present": True,
+                "x_mm": float(x_mm),
+                "y_mm": float(y_mm),
+                "size_mm": float(size_mm or 20.0),
+                "yaw_deg": 0,
+                "attached": False,
+            },
+        )
+
+
 def yaw_rad(state: dict) -> float:
     return math.radians(float((state.get("tcp_rpy_deg") or {}).get("yaw") or 0.0))
 
@@ -74,6 +172,8 @@ PAD_Y_TOL_MM = 2.0
 # Grasp.jawPad (m) and overlay near_pad (mm). inJaws radial is half + this.
 JAW_PAD_MM = 14.0
 NEAR_PAD_MM = 18.0
+READY_Z_MM = 80.0
+FINGERS_DOWN_Z_MM = 42.0
 
 
 def pad_y_tol_mm(size_mm: float) -> float:
@@ -167,6 +267,47 @@ def jaw_z_floor_mm(size_mm: float, *, attached: bool = False) -> float:
     if attached:
         return 32.0
     return max(32.0, PAD_Z_MM - 4.0)
+
+
+def scripted_start_waypoints(cube_x: float, cube_y: float, size_mm: float) -> list[dict]:
+    """keep_level from Ready; 20 mm pad-height fingers_down hits the floor mid-swing."""
+    pad_x = pad_aim_x_mm(cube_x, size_mm)
+    if float(size_mm) <= 25.0:
+        return [{"x_mm": float(pad_x), "y_mm": float(cube_y), "z_mm": READY_Z_MM, "keep_level": True}]
+    return [
+        {"x_mm": float(cube_x), "y_mm": float(cube_y), "z_mm": READY_Z_MM, "keep_level": True},
+        {"x_mm": float(pad_x), "y_mm": float(cube_y), "z_mm": float(tip_grasp_z_mm(size_mm)), "keep_level": True},
+    ]
+
+
+def servo_orientation(*, size_mm: float, tcp_z: float) -> dict:
+    if float(size_mm) <= 25.0 and float(tcp_z) < FINGERS_DOWN_Z_MM:
+        return {"fingers_down": True}
+    return {"keep_level": True}
+
+
+def shape_pad_command(
+    cmd: ArmCommand,
+    tcp: dict,
+    *,
+    cube_xy: tuple[float, float],
+    size_mm: float,
+    cube_z_mm: float,
+    pad_x: float,
+) -> ArmCommand:
+    cmd = optical_close_gate(
+        cmd,
+        np.zeros(1),
+        tcp_z=float(tcp["z"]),
+        tcp=tcp,
+        cube_xy=cube_xy,
+        size_mm=size_mm,
+        cube_z_mm=cube_z_mm,
+        pad_x=pad_x,
+    )
+    cmd = hold_pad_dy(cmd, tcp, cube_y=float(cube_xy[1]), size_mm=size_mm)
+    cmd = hold_pad_dx(cmd, tcp, pad_x, cube_x=float(cube_xy[0]), size_mm=size_mm)
+    return cmd
 
 
 def in_jaw_box(

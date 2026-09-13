@@ -10,14 +10,8 @@ _generation = 0
 _abs_weights: csr_matrix | None = None
 
 
-def publish_activity(brain: LIFNetwork) -> None:
-    """Map activity onto CNS somata.
-
-    Photoreceptors often have no soma in MaleCNS, so a 0-hop current map
-    is invisible. One |W| hop lights lamina/medulla cells that do have somata.
-    """
-    global _generation, _abs_weights
-    _generation += 1
+def _crop_activity(brain: LIFNetwork) -> np.ndarray:
+    global _abs_weights
     if _abs_weights is None or _abs_weights.shape != brain.weights.shape:
         _abs_weights = brain.weights.tocsr(copy=True)
         _abs_weights.data = np.abs(_abs_weights.data)
@@ -29,4 +23,28 @@ def publish_activity(brain: LIFNetwork) -> None:
     scale = float(np.percentile(active, 88)) if active.size else 1.0
     activity = np.clip(raw / max(scale, 1e-6), 0, 1)
     np.sqrt(activity, out=activity)
-    write_activity(activity, _generation)
+    return activity
+
+
+def publish_activity(brain: LIFNetwork) -> None:
+    """Map activity onto CNS somata.
+
+    Photoreceptors often have no soma in MaleCNS, so a 0-hop current map
+    is invisible. One |W| hop lights lamina/medulla cells that do have somata.
+    """
+    global _generation
+    _generation += 1
+    write_activity(_crop_activity(brain), _generation)
+
+
+def publish_crop(lif) -> None:
+    """Scatter crop LIF rates onto full MaleCNS graph indices for the lab overlay."""
+    global _generation
+    _generation += 1
+    crop_act = _crop_activity(lif.brain)
+    parent = np.asarray(lif.crop.parent_index, dtype=np.int64)
+    n_full = max(int(parent.max()) + 1, 166700)
+    full = np.zeros(n_full, dtype=np.float32)
+    k = min(parent.size, crop_act.size)
+    full[parent[:k]] = crop_act[:k]
+    write_activity(full, _generation)

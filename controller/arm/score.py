@@ -211,9 +211,33 @@ def lab_picked(*, acting_map: ActingMap | str, kinematic_success: bool) -> bool:
     return parse_acting_map(acting_map) in LAB_MAPS
 
 
-def da_learned(*, ablation_changed: bool | None) -> bool:
-    """True only when a KC→MBON freeze/shuffle/erase changes pick or abort rate."""
-    return bool(ablation_changed)
+def live_mbon_gate_used(ticks: list[dict] | None, eps: float = 1e-3) -> bool | None:
+    """None if no gate was logged; False if every logged gate sat at 1.0 (DA unused)."""
+    if not ticks:
+        return None
+    gates = [float(row["mbon_gate"]) for row in ticks if row.get("mbon_gate") is not None]
+    if not gates:
+        return None
+    return any(abs(g - 1.0) >= float(eps) for g in gates)
+
+
+def da_learned(
+    *,
+    ablation_changed: bool | None,
+    acting_map: ActingMap | str | None = None,
+    teacher_in_path: bool = False,
+    ticks: list[dict] | None = None,
+) -> bool:
+    """True only when KC→MBON ablation changes the gate on a dn_bus path."""
+    if not ablation_changed:
+        return False
+    if teacher_in_path:
+        return False
+    if parse_acting_map(acting_map) is not ActingMap.dn_bus:
+        return False
+    if live_mbon_gate_used(ticks) is False:
+        return False
+    return True
 
 
 def score_episode(
@@ -248,7 +272,12 @@ def score_episode(
         kinematic_success=bool(kinematic_success),
         fly_picked=bool(fly),
         lab_picked=bool(lab),
-        da_learned=da_learned(ablation_changed=ablation_changed),
+        da_learned=da_learned(
+            ablation_changed=ablation_changed,
+            acting_map=amap,
+            teacher_in_path=teacher,
+            ticks=ticks,
+        ),
         mean_dn_hz=float(mean_dn_hz),
         black_dn_hz=float(black_dn_hz),
         dn_l2=float(dn_l2) if dn_l2 is not None else abs(float(mean_dn_hz) - float(black_dn_hz)),

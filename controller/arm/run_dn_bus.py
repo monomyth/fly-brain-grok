@@ -13,26 +13,39 @@ from malecns_cache.paths import checkpoints_dir
 from rebot_adapter.episode import capture_rgbs, default_mcp_binary
 from rebot_adapter.mcp import MCPClient
 from rebot_adapter.pick import (
-    hold_pad_dx,
-    hold_pad_dy,
+    cleanup_episode,
     jaw_z_floor_mm,
-    optical_close_gate,
     pad_aim_x_mm,
     pick_success,
     qualifying,
+    scene_cube_xy,
+    scripted_start_waypoints,
+    servo_orientation,
     servo_stalled,
-    tip_grasp_z_mm,
+    shape_pad_command,
 )
 from rebot_adapter.teacher import CAPTURE_CAMERAS, cube
 
+from runtime.broadcast import publish_crop
+from runtime.plasticity import KCToMBON
+
 from .bus import l2
-from .crop import build_crop, write_stub_crop
+from .crop import as_connectome, build_crop, write_stub_crop
 from .hop_probe import train_gate
 from .lif_crop import CropLIF
 from .log import episode_summary, g_hash, tick_row, write_json, write_jsonl
 from .score import ActingMap, score_episode, trace_blocks_fly
 from .teacher import teacher_target
-from .unpack import U0, UParams, command_dict, command_is_abort, grip_target_mm, unpack
+from .train_operant import terminal_da_changed
+from .unpack import (
+    U0,
+    UParams,
+    command_dict,
+    command_is_abort,
+    drive_and_gate,
+    grip_target_mm,
+    unpack,
+)
 
 
 def _load_g(lif: CropLIF, path: Path | None) -> str:
@@ -96,7 +109,7 @@ def run_offline_ticks(lif: CropLIF, n: int = 4, u: UParams | None = None) -> tup
     lif.reset_episode()
     for tick in range(n):
         rgb = cube if tick % 2 == 0 else phase_scramble(cube, np.random.default_rng(tick))
-        lif.step_vision(rgb, rgb)
+        lif.step_vision(rgb, rgb, drive_kc=False)
         rates = lif.rates()
         cmd = unpack(rates, u)
         log.append(
@@ -142,6 +155,14 @@ def _hop_blob(stub: bool) -> dict:
     return json.loads(path.read_text())
 
 
+def command_path_gate(lif, memory, front, grip, *, accumulate: bool = True):
+    lif.step_vision(front, grip, drive_kc=False)
+    rates = lif.rates()
+    publish_crop(lif)
+    gate = drive_and_gate(lif.brain, memory, front, accumulate=accumulate)
+    return rates, float(gate)
+
+
 def skip_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
     amap = ActingMap.overlay if args.teacher else ActingMap.dn_bus
     scored = score_episode(
@@ -168,8 +189,10 @@ def skip_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
     return summary, []
 
 
-def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
-    client = MCPClient(args.mcp, launch_lab=False)
+def run_live(args: argparse.Namespace, client=None) -> tuple[dict, list[dict]]:
+    own_client = client is None
+    if own_client:
+        client = MCPClient(args.mcp, launch_lab=False)
     log: list[dict] = []
     interrupted = None
     acting = ActingMap.overlay if args.teacher else ActingMap.dn_bus
@@ -193,18 +216,28 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
             client.call("rebot_playback", {"action": "stop"}, retries=2)
         except Exception:
             pass
-        client.call(
-            "rebot_set_cube",
-            {
-                "present": True,
-                "x_mm": args.x,
-                "y_mm": args.y,
-                "size_mm": args.size,
-                "yaw_deg": 0,
-                "attached": False,
-            },
-            retries=2,
-        )
+        live0 = client.try_state() or {}
+        cube_x, cube_y, already = scene_cube_xy(live0, args.x, args.y)
+        cube_size = float(args.size)
+        if already:
+            try:
+                cube_size = float(cube(live0).get("size_mm") or args.size)
+            except Exception:
+                cube_size = float(args.size)
+        else:
+            cube_x, cube_y = float(args.x), float(args.y)
+            client.call(
+                "rebot_set_cube",
+                {
+                    "present": True,
+                    "x_mm": cube_x,
+                    "y_mm": cube_y,
+                    "size_mm": cube_size,
+                    "yaw_deg": 0,
+                    "attached": False,
+                },
+                retries=2,
+            )
         client.call("rebot_set_gripper", {"opening_mm": 90}, retries=2)
         try:
             client.wait_stopped(timeout=40)
@@ -213,23 +246,9 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
                 client.call("rebot_playback", {"action": "stop"}, retries=2)
             except Exception:
                 pass
-        pad_x = pad_aim_x_mm(float(args.x), args.size)
-        pad_z = tip_grasp_z_mm(args.size)
-        small = float(args.size) <= 25.0
-        if small:
-            # From Ready, fingertips down onto the cube. A keep_level z=80 waypoint
-            # then a 90° wrist flip is floor-limited mid-swing.
-            client.call(
-                "rebot_move_to_pose",
-                {"x_mm": pad_x, "y_mm": args.y, "z_mm": pad_z, "fingers_down": True},
-                retries=2,
-            )
-        else:
-            client.call(
-                "rebot_move_to_pose",
-                {"x_mm": args.x, "y_mm": args.y, "z_mm": 80.0, "keep_level": True},
-                retries=2,
-            )
+        pad_x = pad_aim_x_mm(cube_x, cube_size)
+        for pose in scripted_start_waypoints(cube_x, cube_y, cube_size):
+            client.call("rebot_move_to_pose", pose, retries=2)
             try:
                 client.wait_stopped(timeout=40)
             except Exception:
@@ -237,21 +256,13 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
                     client.call("rebot_playback", {"action": "stop"}, retries=2)
                 except Exception:
                     pass
-            client.call(
-                "rebot_move_to_pose",
-                {"x_mm": pad_x, "y_mm": args.y, "z_mm": pad_z, "keep_level": True},
-                retries=2,
-            )
-        try:
-            client.wait_stopped(timeout=40)
-        except Exception:
-            try:
-                client.call("rebot_playback", {"action": "stop"}, retries=2)
-            except Exception:
-                pass
         client.call("rebot_set_control_mode", {"mode": "servo"}, retries=2)
         # Crop LIF is CPU-heavy; load after scripted setup so the 5s sim socket stays alive.
         lif, loaded, u = _make_lif(args.stub, args.steps, args.gains, args.g_init)
+        memory = KCToMBON(as_connectome(lif.crop), lif.brain)
+        last_front = last_grip = None
+        last_attached = False
+        last_gate = 1.0
         lif.reset_episode()
         black = np.zeros((120, 160, 3), dtype=np.float32)
         black_r = lif.black_baseline(black.shape)
@@ -267,50 +278,39 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
             attached = contact
             rgbs = capture_rgbs(client, CAPTURE_CAMERAS, width=160, height=120)
             front = rgbs[0] if rgbs else black
-            grip = rgbs[1] if len(rgbs) > 1 else black
+            grip_rgb = rgbs[1] if len(rgbs) > 1 else black
+            last_front, last_grip, last_attached = front, grip_rgb, attached
+            rates, last_gate = command_path_gate(lif, memory, front, grip_rgb)
             if args.teacher:
                 yaw = float(np.radians((state.get("tcp_rpy_deg") or {}).get("yaw") or 0.0))
-                teach = teacher_target(tcp, float(state["gripper_mm"]), attached, yaw, cube_xy=(args.x, args.y), cube_size_mm=args.size)
+                teach = teacher_target(tcp, float(state["gripper_mm"]), attached, yaw, cube_xy=(cube_x, cube_y), cube_size_mm=cube_size)
                 cmd = teach.command
                 map_now = ActingMap.overlay
-                # still step the brain so rates are logged, but it does not command
-                lif.step_vision(front, grip)
-                rates = lif.rates()
             else:
-                lif.step_vision(front, grip)
-                rates = lif.rates()
                 cmd = unpack(
                     rates.silenced() if args.silence_dn else rates,
                     u,
+                    gate=last_gate,
                     attached=contact,
                 )
-                cmd = optical_close_gate(
+                cmd = shape_pad_command(
                     cmd,
-                    np.zeros(1),
-                    tcp_z=float(tcp["z"]),
-                    tcp=tcp,
-                    cube_xy=(args.x, args.y),
-                    size_mm=args.size,
+                    tcp,
+                    cube_xy=(cube_x, cube_y),
+                    size_mm=cube_size,
                     cube_z_mm=float(c["center_mm"]["z"]),
                     pad_x=pad_x,
                 )
-                cmd = hold_pad_dy(cmd, tcp, cube_y=args.y, size_mm=args.size)
-                cmd = hold_pad_dx(cmd, tcp, pad_x, cube_x=args.x, size_mm=args.size)
                 map_now = ActingMap.dn_bus
-            z_floor = jaw_z_floor_mm(args.size, attached=attached)
+            z_floor = jaw_z_floor_mm(cube_size, attached=attached)
             dz = float(cmd.dz_mm)
             z_sent = max(z_floor, float(tcp["z"] + dz))
-            # keep_level from this reach hits the floor below ~42 mm TCP
-            tips_down = float(args.size) <= 25.0 and float(tcp["z"]) < 42.0
             target = {
                 "x_mm": tcp["x"] + cmd.dx_mm,
                 "y_mm": tcp["y"] + cmd.dy_mm,
                 "z_mm": z_sent,
+                **servo_orientation(size_mm=cube_size, tcp_z=float(tcp["z"])),
             }
-            if tips_down:
-                target["fingers_down"] = True
-            else:
-                target["keep_level"] = True
             try:
                 client.call("rebot_servo_tcp", target)
             except (RuntimeError, TimeoutError) as exc:
@@ -319,18 +319,15 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
             client.wait_servo_step(target=target, timeout=3.0)
             after = client.try_state() or state
             if (not attached) and servo_stalled(cmd, tcp, after["tcp_mm"]):
-                face = float(args.x) - 0.5 * float(args.size)
+                face = float(cube_x) - 0.5 * float(cube_size)
                 at_face = float(after["tcp_mm"]["x"]) >= face - 5.0
                 hop_z = -4.0 if at_face else 2.0
                 flat = {
                     "x_mm": float(after["tcp_mm"]["x"] + cmd.dx_mm),
                     "y_mm": float(after["tcp_mm"]["y"] + cmd.dy_mm),
                     "z_mm": float(after["tcp_mm"]["z"]) + hop_z,
+                    **servo_orientation(size_mm=cube_size, tcp_z=float(after["tcp_mm"]["z"])),
                 }
-                if tips_down:
-                    flat["fingers_down"] = True
-                else:
-                    flat["keep_level"] = True
                 try:
                     client.call("rebot_servo_tcp", flat)
                     client.wait_servo_step(target=flat, timeout=3.0)
@@ -338,9 +335,9 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
                 except (RuntimeError, TimeoutError):
                     pass
             if abs(cmd.dgrip_mm) > 0.1:
-                grip = grip_target_mm(float(state["gripper_mm"]), cmd.dgrip_mm, args.size)
+                opening = grip_target_mm(float(state["gripper_mm"]), cmd.dgrip_mm, cube_size)
                 try:
-                    client.call("rebot_servo_joints", {"gripper_mm": grip})
+                    client.call("rebot_servo_joints", {"gripper_mm": opening})
                 except (RuntimeError, TimeoutError):
                     pass
             after = client.try_state() or after
@@ -376,6 +373,7 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
                         "tcp_rpy_deg": after.get("tcp_rpy_deg"),
                         "contact": contact,
                         "bus": rates.vec.tolist(),
+                        "mbon_gate": last_gate,
                     },
                 )
             )
@@ -402,6 +400,16 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
         )
         if abort_only:
             success = False
+        ablation_changed = terminal_da_changed(
+            lif,
+            memory,
+            last_front,
+            last_grip,
+            u,
+            last_attached,
+            teacher=bool(args.teacher),
+            reward=1.0 if success else -1.0,
+        )
         scored = score_episode(
             acting_map=acting if not args.teacher else ActingMap.overlay,
             kinematic_success=success,
@@ -410,6 +418,7 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
             black_dn_hz=black_r.scored_mean_hz,
             dn_l2=abs(mean_dn - black_r.scored_mean_hz),
             g_trained=lif.g_trained and not args.g_init,
+            ablation_changed=ablation_changed,
             abort_only=abort_only,
             ticks=log,
         )
@@ -431,20 +440,22 @@ def run_live(args: argparse.Namespace) -> tuple[dict, list[dict]]:
                 "untrained_dn_bus": bool(success) and acting is ActingMap.dn_bus and not lif.g_trained,
                 "abort_only": abort_only,
                 "u_n_params": u.n_params(),
+                "mbon_gate": last_gate,
+                "da_ablation_changed": bool(ablation_changed),
                 **extra_log,
             },
         )
         return summary, log
     finally:
         try:
-            client.call("rebot_set_control_mode", {"mode": "scripted"}, retries=1)
-            client.apply_preset("Folded")
+            cleanup_episode(client, x_mm=args.x, y_mm=args.y, size_mm=args.size)
         except Exception:
             pass
-        try:
-            client.close()
-        except Exception:
-            pass
+        if own_client:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -463,6 +474,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gains", type=Path, default=None)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--stub", action="store_true")
+    parser.add_argument("--episodes", type=int, default=1)
     parser.add_argument("--tag", default="")
     args = parser.parse_args(argv)
     if args.no_overlay:
@@ -471,6 +483,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("steps must be ≥ 50")
     tag = args.tag or ("dn-bus-offline" if args.offline else "dn-bus")
     dest = checkpoints_dir("rebot-pickup") / f"{tag}.json"
+    n_ep = max(1, int(args.episodes))
     if args.offline:
         lif, loaded, u = _make_lif(args.stub, args.steps, args.gains, args.g_init)
         summary, log = run_offline_ticks(lif, n=min(args.ticks, 6), u=u)
@@ -478,7 +491,12 @@ def main(argv: list[str] | None = None) -> int:
     elif not args.stub and not train_gate(_hop_blob(False)):
         summary, log = skip_live(args)
     else:
-        summary, log = run_live(args)
+        summary, log = {}, []
+        for _ in range(n_ep):
+            summary, log = run_live(args)
+        if n_ep > 1:
+            summary = dict(summary)
+            summary["episodes"] = n_ep
     write_json(dest, summary)
     trace = dest.with_name(f"{tag}-trace.jsonl")
     write_jsonl(trace, log)

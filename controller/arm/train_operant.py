@@ -16,14 +16,7 @@ from .hop_probe import train_gate
 from .lif_crop import CropLIF
 from .log import g_hash, write_json, write_skip_checkpoint
 from .score import ActingMap, da_learned as da_learned_flag
-from .unpack import U0, unpack
-
-
-def mbon_gate(hz: np.ndarray, mbon_idx: np.ndarray, k: float = 0.35) -> float:
-    """MBON multiplies approach/grip. Does not emit joints."""
-    if mbon_idx.size == 0:
-        return 1.0
-    return float(1.0 + k * np.tanh(np.mean(hz[mbon_idx]) / 40.0))
+from .unpack import U0, drive_and_gate, mbon_ablation_changed, slots_moved, unpack
 
 
 def terminal_R(*, attached: bool, cube_z_mm: float, tcp_level: bool, hold_s: float, pinch_air: bool, drop: bool, timeout: bool) -> float:
@@ -41,6 +34,31 @@ def pulse_da(memory: KCToMBON, reward: float) -> int:
     else:
         memory.pulse(4.0)
     return memory.update(float(np.clip(reward, -1.0, 1.0)), eta=2e-4)
+
+
+def terminal_da_changed(
+    lif,
+    memory: KCToMBON,
+    front,
+    grip,
+    u,
+    attached: bool,
+    *,
+    teacher: bool,
+    reward: float,
+) -> bool:
+    """True when a terminal pulse moves KC→MBON slots and zeroing them changes the gate."""
+    if teacher or front is None or grip is None or memory.slots.size == 0:
+        return False
+    drive_and_gate(lif.brain, memory, front)
+    before = np.array(lif.brain.weights.data[memory.slots], copy=True)
+    pulse_da(memory, reward)
+    record = getattr(lif, "record_da_delta", None)
+    if callable(record):
+        record()
+    if not slots_moved(before, lif.brain.weights.data[memory.slots]):
+        return False
+    return mbon_ablation_changed(lif, front, grip, u, attached, memory=memory)
 
 
 def operant(
@@ -84,9 +102,9 @@ def operant(
         if ablate and memory.slots.size:
             lif.brain.weights.data[memory.slots] = 0
         lif.reset_episode()
-        hz = lif.step_vision(front, grip, drive_kc=True)
+        lif.step_vision(front, grip, drive_kc=False)
         rates = lif.rates()
-        gate = mbon_gate(hz, crop.indices("MBON11"))
+        gate = drive_and_gate(lif.brain, memory, front)
         cmd = unpack(rates, U0, gate=gate)
         nsyn = 0 if ablate else pulse_da(memory, reward)
         if not ablate and nsyn:
@@ -96,7 +114,9 @@ def operant(
     parent = g0.copy()
     parent_R = 0.0
     history: list[dict] = []
+    gate_ticks: list[dict] = []
     last_front = last_grip = None
+    last_R = 0.0
     for rec in live_rewards:
         child = rec.get("g")
         front = rec.get("front_rgb")
@@ -109,8 +129,9 @@ def operant(
         if child.shape != parent.shape:
             history.append({"kept": False, "reason": "g shape mismatch"})
             continue
-        episode(child, front, grip, r)
-        last_front, last_grip = front, grip
+        ev = episode(child, front, grip, r)
+        last_front, last_grip, last_R = front, grip, r
+        gate_ticks.append({"mbon_gate": float(ev["gate"]), "acting_map": ActingMap.dn_bus.value})
         kept = r > parent_R
         if kept:
             parent = child.copy()
@@ -121,8 +142,23 @@ def operant(
         skip_payload["reason"] = "live_rewards had no evaluable child (need g + front_rgb + grip_rgb + R)"
         return write_skip_checkpoint(json_path=dest.with_suffix(".json"), npz=dest, payload=skip_payload)
 
-    before = episode(parent, last_front, last_grip, 0.0)
-    after = episode(parent, last_front, last_grip, 0.0, ablate=True)
+    ablation_changed = terminal_da_changed(
+        lif,
+        memory,
+        last_front,
+        last_grip,
+        U0,
+        False,
+        teacher=False,
+        reward=last_R,
+    )
+    gate_on = drive_and_gate(lif.brain, memory, last_front, accumulate=False)
+    saved = np.array(lif.brain.weights.data[memory.slots], copy=True) if memory.slots.size else None
+    if memory.slots.size:
+        lif.brain.weights.data[memory.slots] = 0
+    gate_off = drive_and_gate(lif.brain, memory, last_front, accumulate=False)
+    if saved is not None:
+        lif.brain.weights.data[memory.slots] = saved
     lif.apply_gains()
     out = {
         "ok": g_hash(parent) != g_hash(g0),
@@ -135,9 +171,15 @@ def operant(
         "g": parent.tolist(),
         "history": history,
         "kc_mbon_slots": int(memory.slots.size),
-        "mbon_gate_before": before["gate"],
-        "mbon_gate_after_ablate": after["gate"],
-        "da_learned": bool(da_learned_flag(ablation_changed=False)),
+        "mbon_gate_before": float(gate_on),
+        "mbon_gate_after_ablate": float(gate_off),
+        "da_learned": bool(
+            da_learned_flag(
+                ablation_changed=ablation_changed,
+                acting_map=ActingMap.dn_bus,
+                ticks=gate_ticks,
+            )
+        ),
         "fly_picked": False,
         "note": "child g kept only if that rollout's terminal R beats the parent; DA uses the same live frames",
     }

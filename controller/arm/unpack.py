@@ -83,6 +83,106 @@ class UParams:
 U0 = UParams()
 
 
+def mbon_gate(hz: np.ndarray, mbon_idx: np.ndarray, k: float = 0.35) -> float:
+    """MBON multiplies approach/grip/lift. Does not emit joints."""
+    if mbon_idx.size == 0:
+        return 1.0
+    return float(1.0 + k * np.tanh(float(np.mean(hz[mbon_idx])) / 40.0))
+
+
+def kc_mbon_gate(
+    hz: np.ndarray,
+    weights_data: np.ndarray,
+    slots: np.ndarray,
+    pre: np.ndarray,
+    k: float = 0.35,
+) -> float:
+    """Gate from KC→MBON synaptic drive, not raw MBON Hz (kHz saturates tanh)."""
+    if slots.size == 0 or pre.size == 0:
+        return 1.0
+    hz = np.asarray(hz, dtype=np.float64).reshape(-1)
+    w_all = np.asarray(weights_data, dtype=np.float64).reshape(-1)
+    slots_i = np.asarray(slots, dtype=np.int64)
+    pre_i = np.asarray(pre, dtype=np.int64)
+    if slots_i.size != pre_i.size:
+        return 1.0
+    if int(slots_i.min()) < 0 or int(slots_i.max()) >= w_all.size:
+        return 1.0
+    if int(pre_i.min()) < 0 or int(pre_i.max()) >= hz.size:
+        return 1.0
+    w = np.abs(w_all[slots_i])
+    drive = np.abs(hz[pre_i])
+    I = float(np.dot(w, drive))
+    w1 = float(np.sum(w)) + 1e-6
+    return float(1.0 + k * np.tanh(I / (w1 * 40.0)))
+
+
+def slots_moved(before: np.ndarray, after: np.ndarray, eps: float = 1e-8) -> bool:
+    a = np.asarray(before, dtype=np.float64).reshape(-1)
+    b = np.asarray(after, dtype=np.float64).reshape(-1)
+    if a.size == 0 or a.size != b.size:
+        return False
+    return float(np.max(np.abs(b - a))) > float(eps)
+
+
+def drive_and_gate(brain, memory, front: np.ndarray, *, accumulate: bool = True) -> float:
+    """Gate from Kenyon i_ext. Does not step LIF."""
+    from train.features import drive_kenyon_from_image
+
+    drive_kenyon_from_image(brain, memory.kc, front)
+    if accumulate:
+        memory.accumulate_from_pre(brain.i_ext)
+    return kc_mbon_gate(brain.i_ext, brain.weights.data, memory.slots, memory.pre)
+
+
+def mbon_ablation_changed(
+    lif,
+    front: np.ndarray,
+    grip: np.ndarray,
+    u: UParams | None = None,
+    attached: bool = False,
+    *,
+    memory=None,
+    eps_gate: float = 0.02,
+    eps_cmd: float = 0.05,
+) -> bool:
+    """True when zeroing KC→MBON synapses changes the gated bus command."""
+    from runtime.plasticity import KCToMBON
+
+    from .crop import as_connectome
+
+    u = u or U0
+    memory = memory or KCToMBON(as_connectome(lif.crop), lif.brain)
+    if memory.slots.size == 0:
+        return False
+    saved_w = np.array(lif.brain.weights.data[memory.slots], copy=True)
+    saved_i = np.array(lif.brain.i_ext, copy=True)
+    try:
+        drive_and_gate(lif.brain, memory, front, accumulate=False)
+        drive = np.array(lif.brain.i_ext, copy=True)
+        g0 = kc_mbon_gate(drive, lif.brain.weights.data, memory.slots, memory.pre)
+        lif.reset_episode()
+        lif.step_vision(front, grip, drive_kc=False)
+        rates = lif.rates()
+        c0 = unpack(rates, u, gate=g0, attached=attached)
+        lif.brain.weights.data[memory.slots] = 0
+        g1 = kc_mbon_gate(drive, lif.brain.weights.data, memory.slots, memory.pre)
+        c1 = unpack(rates, u, gate=g1, attached=attached)
+    finally:
+        lif.brain.weights.data[memory.slots] = saved_w
+        if saved_i.shape == lif.brain.i_ext.shape:
+            lif.brain.i_ext[:] = saved_i
+    cmd_l2 = float(
+        np.sqrt(
+            (c0.dx_mm - c1.dx_mm) ** 2
+            + (c0.dy_mm - c1.dy_mm) ** 2
+            + (c0.dz_mm - c1.dz_mm) ** 2
+            + (c0.dgrip_mm - c1.dgrip_mm) ** 2
+        )
+    )
+    return abs(g0 - g1) >= eps_gate or cmd_l2 >= eps_cmd
+
+
 def unpack(
     rates: BusRates,
     u: UParams | None = None,

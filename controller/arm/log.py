@@ -9,6 +9,8 @@ import numpy as np
 
 from .score import ActingMap, EpisodeScore
 
+_SEALED_SUMMARY = frozenset({"acting_map", "fly_picked", "lab_picked", "da_learned"})
+
 
 def g_hash(g: np.ndarray) -> str:
     raw = np.asarray(g, dtype=np.float32).tobytes()
@@ -76,7 +78,7 @@ def episode_summary(
         "tick_dn_hz_mean": float(np.mean(dn)) if dn else 0.0,
     }
     if extra:
-        out.update(extra)
+        out.update({k: v for k, v in extra.items() if k not in _SEALED_SUMMARY})
     return out
 
 
@@ -108,6 +110,7 @@ def write_skip_checkpoint(*, json_path: Path, npz: Path, payload: dict) -> dict:
     out["ok"] = False
     out["skipped"] = True
     out["fly_picked"] = False
+    out["da_learned"] = False
     if retired is not None:
         out["retired_weights"] = str(retired)
     write_json(json_path, out)

@@ -16,9 +16,15 @@ def _jpeg_b64(color=(10, 10, 10)) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+_SET_CUBE_KEYS = frozenset({"present", "x_mm", "y_mm", "z_mm", "size_mm", "yaw_deg", "attached"})
+
+
 class FakeRobot:
-    def __init__(self):
+    def __init__(self, delay_gripper: bool = False):
         self.captures: list[str] = []
+        self.calls: list[tuple[str, dict]] = []
+        self.delay_gripper = bool(delay_gripper)
+        self._pending_gripper = None
         self._state = {
             "scene_ready": True,
             "playback": "stopped",
@@ -40,8 +46,30 @@ class FakeRobot:
             },
         }
 
-    def call(self, name, arguments=None):
-        arguments = arguments or {}
+    def _apply_gripper(self, opening: float) -> None:
+        self._state["gripper_mm"] = opening
+        cube_w = self._state["objects"]["cube"]["size_mm"]
+        tcp = self._state["tcp_mm"]
+        c = self._state["objects"]["cube"]["center_mm"]
+        near = abs(tcp["x"] - c["x"]) < 40 and abs(tcp["z"] - 48) < 30
+        if opening <= cube_w + 2 and near:
+            self._state["objects"]["cube"]["attached"] = True
+        if opening >= cube_w + 12:
+            self._state["objects"]["cube"]["attached"] = False
+            self._state["objects"]["cube"]["center_mm"]["z"] = float(cube_w) / 2.0 - 1.0
+
+    def _flush_gripper(self) -> None:
+        if self._pending_gripper is None:
+            return
+        opening = self._pending_gripper
+        self._pending_gripper = None
+        self._apply_gripper(opening)
+
+    def call(self, name, arguments=None, retries=1, timeout=12):
+        del retries, timeout
+        arguments = dict(arguments or {})
+        if name != "rebot_get_state":
+            self.calls.append((name, arguments))
         if name == "rebot_get_state":
             return dict(self._state)
         if name == "rebot_set_control_mode":
@@ -56,25 +84,30 @@ class FakeRobot:
             opening = arguments.get("gripper_mm", arguments.get("opening_mm"))
             if opening is None:
                 raise KeyError(name)
-            self._state["gripper_mm"] = opening
-            cube_w = self._state["objects"]["cube"]["size_mm"]
-            tcp = self._state["tcp_mm"]
-            c = self._state["objects"]["cube"]["center_mm"]
-            near = abs(tcp["x"] - c["x"]) < 40 and abs(tcp["z"] - 48) < 30
-            if opening <= cube_w + 2 and near:
-                self._state["objects"]["cube"]["attached"] = True
-            if opening >= cube_w + 12:
-                self._state["objects"]["cube"]["attached"] = False
-                self._state["objects"]["cube"]["center_mm"]["z"] = float(cube_w) / 2.0 - 1.0
+            opening = float(opening)
+            if self.delay_gripper:
+                self._pending_gripper = opening
+            else:
+                self._apply_gripper(opening)
             return {"accepted": True, "state": self._state}
         if name == "rebot_set_cube":
+            extra = set(arguments) - _SET_CUBE_KEYS
+            if extra:
+                raise KeyError(name)
             c = self._state["objects"]["cube"]
+            if "present" in arguments:
+                c["present"] = bool(arguments["present"])
+            if "attached" in arguments:
+                c["attached"] = bool(arguments["attached"])
             if "x_mm" in arguments:
                 c["center_mm"]["x"] = arguments["x_mm"]
             if "y_mm" in arguments:
                 c["center_mm"]["y"] = arguments["y_mm"]
             if "size_mm" in arguments:
                 c["size_mm"] = arguments["size_mm"]
+            if not c.get("attached"):
+                c["falling"] = False
+                c["center_mm"]["z"] = float(c.get("size_mm") or 40) / 2.0 - 1.0
             return {"accepted": True, "state": self._state}
         if name == "rebot_playback":
             if arguments.get("action") == "reset":
@@ -82,6 +115,8 @@ class FakeRobot:
                 self._state["gripper_mm"] = 0
             return {"accepted": True, "state": self._state}
         if name == "rebot_apply_preset":
+            if arguments.get("name") == "Folded":
+                self._state["gripper_mm"] = 0.0
             return {"accepted": True, "state": self._state}
         if name == "rebot_set_view":
             if "camera" in arguments:
@@ -104,10 +139,34 @@ class FakeRobot:
         raise KeyError(name)
 
     def state(self, retries=1, timeout=12):
+        self._flush_gripper()
         return self.call("rebot_get_state")
 
-    def wait_stopped(self, timeout=20):
+    def try_state(self, timeout=8):
         return self.state()
+
+    def wait_stopped(self, timeout=20):
+        self.calls.append(("wait_stopped", {"timeout": timeout}))
+        if not self.delay_gripper:
+            self._flush_gripper()
+        return dict(self._state)
+
+    def initialize(self, name="flybrain-dn-bus"):
+        self.calls.append(("initialize", {"name": name}))
+        return {"ok": True}
+
+    def wait_ready(self, timeout=20):
+        return dict(self._state)
+
+    def apply_preset(self, name, timeout=40):
+        return self.call("rebot_apply_preset", {"name": name})
+
+    def wait_servo_step(self, target=None, timeout=3.0):
+        del target, timeout
+        return self.try_state()
+
+    def close(self):
+        self.calls.append(("close", {}))
 
 
 def test_lab_binary_sits_next_to_mcp():
@@ -211,6 +270,90 @@ def test_record_pick_writes_front_and_gripper(tmp_path):
     log = (tmp_path / "ep" / "log.jsonl").read_text()
     assert '"Front"' in log and '"Gripper"' in log
     assert "Top" not in log
+
+
+def test_cleanup_episode_opens_then_folds():
+    from rebot_adapter.pick import cleanup_episode
+    from rebot_adapter.teacher import cube
+
+    robot = FakeRobot(delay_gripper=True)
+    robot.call("rebot_set_gripper", {"opening_mm": 20})
+    robot._flush_gripper()
+    robot._state["objects"]["cube"]["attached"] = True
+    robot._state["objects"]["cube"]["size_mm"] = 20
+    robot._state["objects"]["cube"]["center_mm"] = {"x": 200.0, "y": -54.0, "z": 120.0}
+    robot._state["tcp_mm"] = {"x": 280.0, "y": 0.0, "z": 48.0}
+    cleanup_episode(robot, x_mm=280.0, y_mm=0.0, size_mm=20.0)
+    seq = [name for name, _ in robot.calls]
+    assert "rebot_set_gripper" in seq
+    fold_i = seq.index("rebot_apply_preset")
+    assert robot.calls[fold_i][1].get("name") == "Folded"
+    assert seq[fold_i + 1] == "wait_stopped"
+    assert "rebot_set_cube" in seq[fold_i + 2 :]
+    open_i = next(i for i, (name, args) in enumerate(robot.calls) if name == "rebot_set_gripper" and args.get("opening_mm") == 90)
+    assert open_i < fold_i
+    cube_args = next(args for name, args in robot.calls if name == "rebot_set_cube")
+    assert set(cube_args) <= _SET_CUBE_KEYS
+    assert "falling" not in cube_args
+    assert any(name == "rebot_set_gripper" and args.get("opening_mm") == 90 for name, args in robot.calls)
+    assert robot._state["gripper_mm"] == 0
+    c = cube(robot._state)
+    assert c["attached"] is False
+    assert c.get("falling") is False
+    assert abs(float(c["center_mm"]["x"]) - 280.0) < 1e-9
+    assert abs(float(c["center_mm"]["y"]) - 0.0) < 1e-9
+    assert float(c["center_mm"]["z"]) < 20.0
+    assert robot._state["control_mode"] == "scripted"
+
+
+def test_second_episode_sees_table_cube_at_spawn():
+    from rebot_adapter.pick import cleanup_episode, scene_cube_xy
+    from rebot_adapter.teacher import cube
+
+    robot = FakeRobot(delay_gripper=True)
+    robot.call("rebot_set_gripper", {"opening_mm": 20})
+    robot._flush_gripper()
+    robot._state["objects"]["cube"]["attached"] = True
+    robot._state["objects"]["cube"]["size_mm"] = 20
+    robot._state["objects"]["cube"]["center_mm"] = {"x": 200.0, "y": -54.0, "z": 120.0}
+    cleanup_episode(robot, x_mm=280.0, y_mm=0.0, size_mm=20.0)
+    st = robot.state()
+    c = cube(st)
+    x, y, already = scene_cube_xy(st, 280.0, 0.0)
+    assert c["attached"] is False
+    assert c.get("falling") is False
+    assert float(c["center_mm"]["z"]) < 20.0
+    assert already is True
+    assert abs(x - 280.0) < 1e-9
+    assert abs(y - 0.0) < 1e-9
+    assert abs(float(c["center_mm"]["x"]) - 280.0) < 1e-9
+    assert abs(float(c["center_mm"]["y"]) - 0.0) < 1e-9
+
+
+def test_cleanup_skips_fold_when_gripper_stays_shut():
+    from rebot_adapter.pick import cleanup_episode
+
+    class StuckGrip(FakeRobot):
+        def _apply_gripper(self, opening: float) -> None:
+            del opening
+
+    robot = StuckGrip()
+    robot._state["gripper_mm"] = 20.0
+    robot._state["objects"]["cube"]["attached"] = True
+    cleanup_episode(robot, x_mm=280.0, y_mm=0.0, size_mm=20.0, open_s=0.0)
+    seq = [name for name, _ in robot.calls]
+    assert "rebot_apply_preset" not in seq
+    assert "rebot_set_cube" in seq
+    assert abs(float(robot._state["gripper_mm"]) - 20.0) < 1e-9
+
+
+def test_fake_set_cube_rejects_falling():
+    robot = FakeRobot()
+    try:
+        robot.call("rebot_set_cube", {"x_mm": 280.0, "y_mm": 0.0, "size_mm": 20.0, "falling": False})
+    except KeyError:
+        return
+    raise AssertionError("falling must be rejected")
 
 
 def _fake_mcp(tmp_path, delay=0.4, error=False) -> tuple[Path, Path]:

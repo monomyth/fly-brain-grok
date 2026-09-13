@@ -41,4 +41,4 @@ Pass `g-distill.npz` to `controller/scripts/run_dn_bus.py --gains ...`.
 
 ## Provenance
 
-MaleCNS / MANC types from the public Janelia male CNS connectome. Overlay / k-NN teachers are **not** stored here. `da_learned` is false. After a successful hold the current client Folds without opening, so the cube is not released.
+MaleCNS / MANC types from the public Janelia male CNS connectome. Overlay / k-NN teachers are **not** stored here. Live `loop-da2`: `fly_picked` (dn_bus, cube z 111 mm, hold 2 s). `da_learned` is not claimed for that run (`mbon_gate` 1.0). Cleanup opens the gripper then Folds (lab routing).

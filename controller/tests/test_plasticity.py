@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from scipy.sparse import csr_matrix
 
 from malecns_cache.graph import Connectome, load_stub
@@ -114,3 +115,33 @@ def test_shuffled_phase_rewards_change_delta_direction():
     cos = float(task @ shuffle / (na * nb)) if na and nb else 1.0
     assert na > 0 and nb > 0
     assert cos < 0.5
+
+
+def test_update_uses_kenyon_pre_trace_not_silent_lif():
+    graph, brain, memory = _sheet(8)
+    brain.duty[:] = 0
+    brain.rate_hz[:] = 0
+    drive = np.zeros(brain.n, dtype=np.float32)
+    drive[0:4] = 4.0
+    before = brain.weights.data[memory.slots].copy()
+    memory.accumulate_from_pre(drive)
+    memory.update(1.0, eta=1e-2)
+    delta = float(np.max(np.abs(brain.weights.data[memory.slots] - before)))
+    assert delta == pytest.approx(0.0035, rel=1e-3)
+
+
+def test_flat_nonblack_image_still_drives_kenyon():
+    rgb = np.full((32, 32, 3), 0.4, dtype=np.float32)
+
+    class B:
+        def __init__(self):
+            self.n = 64
+            self.i_ext = np.zeros(64, np.float32)
+
+    b = B()
+    kc = np.arange(64, dtype=np.int32)
+    drive_kenyon_from_image(b, kc, rgb)
+    assert float(b.i_ext.min()) > 1.0
+    b.i_ext[:] = 0
+    drive_kenyon_from_image(b, kc, np.zeros((32, 32, 3), dtype=np.float32))
+    assert float(b.i_ext.max()) == 0.0

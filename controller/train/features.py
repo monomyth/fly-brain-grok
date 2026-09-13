@@ -210,12 +210,15 @@ def drive_kenyon_from_image(
 ) -> np.ndarray | None:
     """Retinotopic KC sheet: one cell per √N×√N luma patch, k-WTA + motion.
 
-    Winners (top `wta` fraction of contrast+motion) get current `hi`; the rest
-    stay near `lo` so a moving arm / cube lights a different KC set per phase.
+    Luma floor so KC→MBON still sees current on a flat non-black field; WTA ranks contrast.
     """
     if kc_idx.size == 0:
         return None
     grid = kenyon_grid(rgb, int(kc_idx.size))
+    lum = float(np.clip(grid.mean(), 0.0, 1.0))
+    if kc_idx.size == 1:
+        brain.i_ext[np.asarray(kc_idx, dtype=np.int32)] = np.float32(lo + hi * lum)
+        return grid
     contrast = grid - float(grid.mean())
     motion = np.abs(grid - prev_grid) if prev_grid is not None and prev_grid.shape == grid.shape else np.zeros_like(grid)
     signal = contrast + np.float32(2.5) * motion
@@ -226,9 +229,11 @@ def drive_kenyon_from_image(
     peak = float(np.max(sparse))
     bins = (np.arange(kc_idx.size) % sparse.size).astype(np.int32)
     if peak < 1e-8:
-        current = np.full(kc_idx.size, lo, dtype=np.float32)
+        current = np.full(kc_idx.size, np.float32(lo + hi * lum), dtype=np.float32)
     else:
         current = np.float32(lo + hi * (sparse[bins] / peak))
+        if lum > 0:
+            current = np.maximum(current, np.float32(lo + 0.25 * hi * lum))
     brain.i_ext[np.asarray(kc_idx, dtype=np.int32)] = current
     return grid
 
