@@ -2,7 +2,7 @@
 
 Date: 2026-09-11 evening. Architecture plan. The grok lab is the body. MaleCNS, LIF, downloads, and training stay outside `rebot-motion-lab-grok`.
 
-**Scope:** `/Users/monomyth/code/grok/fly-brain` only. Public MaleCNS / Janelia / doomfly sources are fine. Atlas: [fly-connectome.grok.me](https://fly-connectome.grok.me) ([/robotics](https://fly-connectome.grok.me/robotics)). Arm-transfer notes: `grok_report.pdf` (dopamine), `grok_report-2.pdf` (embodiment).
+**Scope:** this `fly-brain-grok` tree only. Public MaleCNS / Janelia / doomfly sources are fine. Atlas: [fly-connectome.grok.me](https://fly-connectome.grok.me) ([/robotics](https://fly-connectome.grok.me/robotics)). Arm-transfer notes: `grok_report.pdf` (dopamine), `grok_report-2.pdf` (embodiment).
 
 **One-line goal:** Front + Gripper pictures into MaleCNS optical neurons; a **named descending-neuron bus** commands the arm; lab IK is the **VNC unpacker**; **dopamine stamps which camera snapshots predicted a good grasp**, not how the B601 bends.
 
@@ -118,7 +118,7 @@ Neural: many 0.1 ms steps per 10–20 Hz servo tick; **no per-frame reset**. Pas
 
 ## 3. Downloads
 
-Same three feathers in `$MALECNS_HOME=/Users/monomyth/code/data/malecns`. Meta must keep photoreceptors, DN groups, KC/MBON11/PPL101, **and** `vnc_motor` / `leg_mn_*` for the log. CC-BY.
+Same three feathers in `$MALECNS_HOME`. Meta must keep photoreceptors, DN groups, KC/MBON11/PPL101, **and** `vnc_motor` / `leg_mn_*` for the log. CC-BY.
 
 ---
 

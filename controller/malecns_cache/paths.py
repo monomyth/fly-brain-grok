@@ -3,14 +3,21 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-DEFAULT_HOME = Path("/Users/monomyth/code/data/malecns")
 WORKSPACE = Path(__file__).resolve().parents[2]
+
+
+def default_malecns_home() -> Path:
+    """No user or host in the tree. GPU box: /data/malecns if present, else ~/data/malecns."""
+    gpu = Path("/data/malecns")
+    if gpu.is_dir():
+        return gpu
+    return Path.home() / "data" / "malecns"
 
 
 def home() -> Path:
     """Shared MaleCNS download cache (GCS feathers, prepared CSR, somas)."""
-    raw = os.environ.get("MALECNS_HOME", str(DEFAULT_HOME))
-    path = Path(raw).expanduser().resolve()
+    raw = os.environ.get("MALECNS_HOME")
+    path = Path(raw).expanduser().resolve() if raw else default_malecns_home()
     path.mkdir(parents=True, exist_ok=True)
     return path
 

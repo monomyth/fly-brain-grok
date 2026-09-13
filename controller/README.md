@@ -5,9 +5,9 @@ External Python process for the grok ReBot lab. No connectome code lives in `reb
 Launching the simulator and running a simulation are **separate**:
 
 ```sh
-export MALECNS_HOME=/Users/monomyth/code/data/malecns
-export FLYBRAIN_DATA=/Users/monomyth/code/grok/fly-brain/data
-cd /Users/monomyth/code/grok/fly-brain/controller
+export MALECNS_HOME="${MALECNS_HOME:-$HOME/data/malecns}"   # or /data/malecns on a GPU box
+export FLYBRAIN_DATA="${FLYBRAIN_DATA:-$PWD/../data}"
+cd controller
 source .venv/bin/activate
 
 # 1. App (Dock icon)

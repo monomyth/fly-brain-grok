@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from malecns_cache.paths import checkpoints_dir, project_data
+from malecns_cache.paths import checkpoints_dir, home, project_data
 from rebot_adapter.episode import default_mcp_binary
 from train.features import FEATURE_NAMES
 from train.readout import apply_linear, load_readout, random_readout
@@ -181,7 +181,7 @@ def main() -> int:
         env = {
             **os.environ,
             "REBOT_MCP_NO_LAUNCH": "1",
-            "MALECNS_HOME": os.environ.get("MALECNS_HOME", "/Users/monomyth/code/data/malecns"),
+            "MALECNS_HOME": os.environ.get("MALECNS_HOME") or str(home()),
             "FLYBRAIN_DATA": os.environ.get("FLYBRAIN_DATA", str(project_data())),
             "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
         }

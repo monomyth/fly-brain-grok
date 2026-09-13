@@ -17,7 +17,7 @@
   "tick_dn_hz_mean": 1220.5756761705554,
   "controller": "dn_bus",
   "picked": true,
-  "weights": "/Users/monomyth/code/grok/fly-brain/data/checkpoints/rebot-pickup/g-distill.npz",
+  "weights": "checkpoints/rebot-pickup/g-distill.npz",
   "interrupted": null,
   "hold_s": 2.798821999982465,
   "attached": true,
@@ -270,5 +270,5 @@
       ]
     }
   ],
-  "trace": "/Users/monomyth/code/grok/fly-brain/data/checkpoints/rebot-pickup/eval-size20-trace.jsonl"
+  "trace": "checkpoints/rebot-pickup/eval-size20-trace.jsonl"
 }

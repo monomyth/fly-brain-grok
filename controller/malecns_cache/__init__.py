@@ -1,8 +1,8 @@
 from .graph import Connectome, load_graph, load_stub, write_stub_graph
 from .paths import (
-    DEFAULT_HOME,
     checkpoints_dir,
     datasets_dir,
+    default_malecns_home,
     graph_meta,
     graph_npz,
     home,
@@ -13,8 +13,8 @@ from .paths import (
 
 __all__ = [
     "Connectome",
-    "DEFAULT_HOME",
     "checkpoints_dir",
+    "default_malecns_home",
     "datasets_dir",
     "graph_meta",
     "graph_npz",

@@ -48,7 +48,7 @@ python3 -m venv controller/.venv
 source controller/.venv/bin/activate
 pip install -e controller huggingface_hub numpy scipy pillow pyarrow
 
-export MALECNS_HOME="$HOME/data/malecns"          # GCS feathers + prepared graph
+export MALECNS_HOME="${MALECNS_HOME:-$HOME/data/malecns}"  # or /data/malecns on a GPU box
 export FLYBRAIN_DATA="$PWD/data"
 
 # weights (tiny) + optional optic crop (~19 MB)

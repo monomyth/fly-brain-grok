@@ -1,6 +1,6 @@
 # Local experiment artifacts
 
-`$MALECNS_HOME` (`/Users/monomyth/code/data/malecns`) holds **downloads and derived connectome files only**: GCS feathers, `source.lock.json`, prepared CSR, soma bin.
+`$MALECNS_HOME` (default `~/data/malecns`, or `/data/malecns` on a GPU box if that directory exists) holds **downloads and derived connectome files only**: GCS feathers, `source.lock.json`, prepared CSR, soma bin.
 
 This directory is what the grok fly-brain controller **writes**:
 

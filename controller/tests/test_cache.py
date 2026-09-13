@@ -7,8 +7,10 @@ from malecns_cache.paths import WORKSPACE, checkpoints_dir, datasets_dir, home, 
 from malecns_cache.prepare import group_cells
 
 
-def test_home_defaults_to_shared_cache():
-    assert home() == Path("/Users/monomyth/code/data/malecns")
+def test_home_defaults_without_user_path(monkeypatch, tmp_path):
+    monkeypatch.delenv("MALECNS_HOME", raising=False)
+    monkeypatch.setattr("malecns_cache.paths.default_malecns_home", lambda: tmp_path)
+    assert home() == tmp_path.resolve()
 
 
 def test_generated_artifacts_live_in_this_workspace(monkeypatch, tmp_path):

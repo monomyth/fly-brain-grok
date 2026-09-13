@@ -545,8 +545,8 @@
   },
   "live_replay": {
     "split_cameras": true,
-    "front_path": "/Users/monomyth/code/grok/fly-brain/data/datasets/rebot-optical-fg/ep20-pad-z48/frames/0000-front.jpg",
-    "grip_path": "/Users/monomyth/code/grok/fly-brain/data/datasets/rebot-optical-fg/ep20-pad-z48/frames/0000-gripper.jpg",
+    "front_path": "datasets/rebot-optical-fg/ep20-pad-z48/frames/0000-front.jpg",
+    "grip_path": "datasets/rebot-optical-fg/ep20-pad-z48/frames/0000-gripper.jpg",
     "cube_episode": "ep20-pad-z48",
     "cube_tick": 0,
     "grip_chroma": 0.0162109375,
