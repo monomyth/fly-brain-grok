@@ -120,6 +120,7 @@ def test_sync_rsync_argv_is_not_can():
     assert "rsync" in flat
     assert "/dev/ttyACM0" not in flat
     assert all(cmd[0] == "rsync" for cmd in cmds)
+    assert any(tok.endswith(".json") for cmd in cmds for tok in cmd)
 
 
 def test_hop_search_wrist_only_cube_on_plant(tmp_path):

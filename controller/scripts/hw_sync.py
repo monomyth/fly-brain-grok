@@ -21,6 +21,7 @@ def rsync_argv(host: str, remote: str) -> list[list[str]]:
     dest = f"{host}:{remote}/"
     common = ["rsync", "-az", "--exclude", ".venv", "--exclude", "__pycache__", "--exclude", "*.pyc"]
     crop = REPO / "data" / "prepared" / "malecns-v1.0-crop-v1-optic-rich-mancType-DNfl-DNxl.npz"
+    crop_meta = crop.with_suffix(".json")
     distill = REPO / "data" / "checkpoints" / "rebot-pickup" / "g-distill.npz"
     cmds = [
         [*common, f"{ROOT}/arm/", f"{dest}controller/arm/"],
@@ -34,6 +35,8 @@ def rsync_argv(host: str, remote: str) -> list[list[str]]:
     ]
     if crop.is_file():
         cmds.append([*common, str(crop), f"{dest}data/prepared/"])
+    if crop_meta.is_file():
+        cmds.append([*common, str(crop_meta), f"{dest}data/prepared/"])
     if distill.is_file():
         cmds.append([*common, str(distill), f"{dest}data/checkpoints/rebot-pickup/"])
     return cmds

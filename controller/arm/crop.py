@@ -352,6 +352,10 @@ def build_crop(release: str = "v1.0", force: bool = False) -> Crop:
     meta_path = crop_meta_path(release)
     if dest.exists() and meta_path.exists() and not force:
         return load_crop(release)
+    if dest.exists() and not meta_path.exists() and not force:
+        raise FileNotFoundError(
+            f"crop npz at {dest} but missing sidecar {meta_path.name}; will not rebuild from full MaleCNS"
+        )
     connectome = load_graph(release)
     types, manc, _subclass, soma, root, instance, hex1, hex2 = _align_annotations(connectome)
     scored = _scored_dn_mask(types, manc)
