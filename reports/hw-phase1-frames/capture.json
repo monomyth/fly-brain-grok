@@ -1,0 +1,36 @@
+{
+  "phase": 1,
+  "connect_called": false,
+  "serials": {
+    "wrist": "CV2L761000FA",
+    "overview": "CPC6463000PZ"
+  },
+  "cameras": {
+    "wrist": {
+      "serial": "CV2L761000FA",
+      "model": "Orbbec Gemini 305",
+      "jpeg_bytes": 126171,
+      "width": 848,
+      "height": 480,
+      "n": 15,
+      "fps": 13.460608205798502,
+      "mean_dt_s": 0.033027819224766324,
+      "path": "/tmp/hw-phase1/wrist.jpg",
+      "age_vs_first_s": 0.4623894691467285
+    },
+    "overview": {
+      "serial": "CPC6463000PZ",
+      "model": "Orbbec Gemini 336L",
+      "jpeg_bytes": 38555,
+      "width": 848,
+      "height": 480,
+      "n": 15,
+      "fps": 15.787787565139096,
+      "mean_dt_s": 0.033150979450770786,
+      "path": "/tmp/hw-phase1/overview.jpg",
+      "age_vs_first_s": 0.464113712310791
+    }
+  },
+  "timestamp_kind": "host_receive_after_wait_for_frames",
+  "hardware_sync": false
+}

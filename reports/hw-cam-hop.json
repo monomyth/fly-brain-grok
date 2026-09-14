@@ -1,0 +1,81 @@
+{
+  "split_cameras": true,
+  "cube_dn_mean": 0.0,
+  "empty_dn_mean": 0.0,
+  "scramble_dn_mean": 0.0,
+  "l2_cube_empty": 0.0,
+  "l2_cube_scramble": 0.0,
+  "cos_cube_empty": 0.0,
+  "cos_cube_scramble": 0.0,
+  "cube_r1": 59.65847396850586,
+  "scramble_r1": 0.0,
+  "gf_hz_cube": 0.0,
+  "cube_command": {
+    "dx_mm": 0.0,
+    "dy_mm": 0.0,
+    "dz_mm": 0.0,
+    "dgrip_mm": 0.0,
+    "keep_level": true
+  },
+  "cube_is_abort": false,
+  "silence_command_zero": true,
+  "empty": {
+    "dn_mean": 0.0
+  },
+  "black_is_pixels": true,
+  "empty_table_note": "black is zeros, not an empty-table capture",
+  "elapsed_s": 0.8009594170143828,
+  "encoder_wh": [
+    160,
+    120
+  ],
+  "capture_wh": [
+    848,
+    480
+  ],
+  "rig_id": "b601-orbbec-848x480-v0-1b983b849cf5",
+  "ok": false,
+  "fly_picked": false,
+  "da_learned": false,
+  "capture": {
+    "phase": 1,
+    "connect_called": false,
+    "serials": {
+      "wrist": "CV2L761000FA",
+      "overview": "CPC6463000PZ"
+    },
+    "cameras": {
+      "wrist": {
+        "serial": "CV2L761000FA",
+        "model": "Orbbec Gemini 305",
+        "jpeg_bytes": 126171,
+        "width": 848,
+        "height": 480,
+        "n": 15,
+        "fps": 13.460608205798502,
+        "mean_dt_s": 0.033027819224766324,
+        "path": "/tmp/hw-phase1/wrist.jpg",
+        "age_vs_first_s": 0.4623894691467285
+      },
+      "overview": {
+        "serial": "CPC6463000PZ",
+        "model": "Orbbec Gemini 336L",
+        "jpeg_bytes": 38555,
+        "width": 848,
+        "height": 480,
+        "n": 15,
+        "fps": 15.787787565139096,
+        "mean_dt_s": 0.033150979450770786,
+        "path": "/tmp/hw-phase1/overview.jpg",
+        "age_vs_first_s": 0.464113712310791
+      }
+    },
+    "timestamp_kind": "host_receive_after_wait_for_frames",
+    "hardware_sync": false
+  },
+  "paths": {
+    "wrist": "../reports/hw-phase1-frames/wrist.jpg",
+    "overview": "../reports/hw-phase1-frames/overview.jpg"
+  },
+  "stub": false
+}

@@ -94,6 +94,28 @@ Predeclare poses. Count every attempt. Record both cameras + DN rates. Say if re
 
 Proposed gate for a **supervised** demo (not unattended use): 20 attempts, ≥19 complete successes, zero out-of-box commands, zero e-stop interventions. Change the number when Phase 2 envelope is known.
 
+## Where Phase 0–1 run
+
+USB and the Orbbec SDK only exist on isengard. SSH from this Mac is how a process is **started** there, not a second way to open `/dev/ttyACM0` or the Geminis.
+
+| Work | Where | Why |
+|---|---|---|
+| Phase 0 ownership (`lsusb`, `fuser`, process list) | **isengard process** (invoked over SSH) | Device nodes are local to that kernel |
+| Phase 1 JPEG grab | **isengard**, `orbbec/.venv` + `scripts/hw_orbbec_grab.py` | pyorbbecsdk talks to USB; grab then **exits** (no standing ZMQ publisher) |
+| Crop LIF hop-probe | **this repo on the Mac** | MaleCNS crop (~59k) lives here; two JPEGs are cheap to copy; isengard has no fly-brain tree |
+| Herdr pane | Optional log tail | Not an e-stop; not required for Phase 0–1 |
+
+Do not run `herdr --remote` from an agent for this. Do not `connect()` the follower. `--from-dir` replays saved `wrist.jpg`/`overview.jpg` without cameras.
+
+First live grab (2026-09-13): serials matched (305 `CV2L761000FA`, 336L `CPC6463000PZ`). Wrist ~13.5 FPS, overview ~15.8 FPS (pipeline start included). Overview was underexposed. Stub crop hop was green (`cube_dn≈14` vs black 0) — that is not the 59k plant. Real crop: R1 Hz ≈ 60, **scored DN Hz = 0**, `ok=false`, `fly_picked=false`. Photoreceptors saw the table; the DN bus did not.
+
+```sh
+# from controller/
+python scripts/hw_phase01.py --phase 0 --host isengard.local --out ../reports
+python scripts/hw_phase01.py --phase 01 --host isengard.local --out ../reports
+python scripts/hw_phase01.py --phase 1 --from-dir ../reports/hw-phase1-frames --stub
+```
+
 ## Immediate next step
 
-Phase 0–1 only: camera hop-probe on isengard, no `connect()`. Implement SIM-005/006 in the Mac lab so those JPEGs can enter the crop without a silent reshape.
+Phase 0–1: `scripts/hw_phase01.py` (cameras only). SIM-005/006 crop is in `rebot_adapter/camera_contract.py`.

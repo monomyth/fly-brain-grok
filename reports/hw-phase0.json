@@ -1,0 +1,20 @@
+{
+  "phase": 0,
+  "host": "isengard.local",
+  "herdr_is_estop": false,
+  "ssh_drop_is_estop": false,
+  "connect_called": false,
+  "gemini_305_usb": true,
+  "gemini_336l_usb": true,
+  "tty_acm0": true,
+  "tty_usb0": true,
+  "tty_acm0_busy": false,
+  "tty_usb0_busy": false,
+  "motor_processes": [],
+  "camera_processes": [],
+  "memory_crash_log": true,
+  "capture_ok": true,
+  "policy_qualify": false,
+  "note": "e-stop is physical. Herdr/SSH are not. Do not call follower connect(). Phase 0 never qualifies a policy.",
+  "qualify_block": "unrepaired memory-subsystem log present"
+}
