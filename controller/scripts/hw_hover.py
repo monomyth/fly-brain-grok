@@ -25,14 +25,21 @@ RATE_HZ = 10.0
 IK_ERR_MM = 5.0
 
 
-def plan_hover(arm_deg: np.ndarray, dz_mm: float, *, keep_level: bool = True) -> dict:
+def plan_hover(arm_deg: np.ndarray, dz_mm: float, *, keep_level: bool = False) -> dict:
     if dz_mm <= 0 or dz_mm > MAX_DZ_MM:
         raise FailClosed(f"dz_mm must be in (0, {MAX_DZ_MM}]")
     pose = fk_pose(arm_deg)
     target = {"x": pose.x_mm, "y": pose.y_mm, "z": pose.z_mm + float(dz_mm)}
-    q1, err = ik_arm(target, arm_deg, keep_level=keep_level)
+    used = bool(keep_level)
+    q1, err = ik_arm(target, arm_deg, keep_level=used)
+    if (not np.all(np.isfinite(q1)) or err > IK_ERR_MM) and used:
+        used = False
+        q1, err = ik_arm(target, arm_deg, keep_level=False)
     if not np.all(np.isfinite(q1)) or err > IK_ERR_MM:
-        raise FailClosed(f"IK failed err_mm={err}")
+        raise FailClosed(
+            f"IK failed err_mm={err} q0_deg={[round(float(x),2) for x in arm_deg]} "
+            f"xyz_mm={[round(pose.x_mm,1), round(pose.y_mm,1), round(pose.z_mm,1)]}"
+        )
     return {
         "from_mm": pose.as_mm(),
         "to_mm": target,
@@ -40,7 +47,7 @@ def plan_hover(arm_deg: np.ndarray, dz_mm: float, *, keep_level: bool = True) ->
         "q1_deg": [float(x) for x in q1],
         "ik_err_mm": float(err),
         "dz_mm": float(dz_mm),
-        "keep_level": bool(keep_level),
+        "keep_level": used,
     }
 
 

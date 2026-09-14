@@ -257,6 +257,10 @@ def test_plan_hover_lifts_z():
     plan = mod.plan_hover(q0, 15.0)
     assert plan["to_mm"]["z"] == pytest.approx(z0 + 15.0)
     assert plan["ik_err_mm"] < 5.0
+    q_lift = np.array([0.0, -20.0, 0.0, 0.0, 0.0, 0.0])
+    plan2 = mod.plan_hover(q_lift, 15.0)
+    assert plan2["ik_err_mm"] < 5.0
+    assert plan2["keep_level"] is False
     with pytest.raises(FailClosed):
         mod.plan_hover(q0, -5.0)
 
