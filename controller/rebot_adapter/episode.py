@@ -11,6 +11,7 @@ from runtime.decoder import decode_dn_rates
 from runtime.encoder import decode_jpeg, encode_frame
 from runtime.lif import LIFNetwork
 
+from .camera_contract import CameraContractError, require_capture_name
 from .mcp import MCPClient
 from .teacher import CAPTURE_CAMERAS, cube
 
@@ -32,6 +33,9 @@ def capture_rgbs(
             "rebot_capture_view",
             {"camera": name, "width": width, "height": height, "apply": False},
         )
+        require_capture_name(shot, name)
+        if not shot.get("jpeg_base64"):
+            raise CameraContractError(f"{name} capture missing jpeg_base64")
         raw = base64.b64decode(shot["jpeg_base64"])
         if save_dir is not None:
             (save_dir / f"{stem or 'tick'}-{name.lower()}.jpg").write_bytes(raw)

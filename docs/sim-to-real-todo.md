@@ -12,18 +12,20 @@ Drop-in transfer is not realistic. The optic crop can ingest real JPEGs after a 
 
 ## Simulator work
 
-- [ ] **SIM-001 Cartesian vs joints.** Add a B601 joint plant (shoulder_pan … gripper) with the same names and CAN order. Keep the MCP TCP path as the Mac lab. A hardware adapter must IK/FK; the sim should round-trip the same seven channels so we can test the adapter offline.
-- [ ] **SIM-002 Gripper units.** Hardware: closed = `0°`, open toward **−270°**, FORCE_POS ratio 0.07. Lab: 0–90 mm opening. Measure a real aperture curve (open and close, hysteresis). Until then, a versioned fake curve in the sim that **fails closed** if a caller mixes mm and degrees.
-- [ ] **SIM-003 No magic attach.** Lab weld is pads-in-AABB. Hardware has no contact boolean. Stop using `attached` as an oracle in any plant meant to match the robot. Drive pinch/lift from images + optional estimated grasp, labeled as estimated.
-- [ ] **SIM-004 keep_level / floor.** Lab IK holds tool orientation and clamps TCP z (~42 mm fingers_down). Hardware `send_action` moves joints independently. Simulate unlevel wrist, table collision, and a missing orientation constraint.
-- [ ] **SIM-005 Camera contract.** Real dual stack: 305 wrist + 336L overview, **848×480** YUYV, ZMQ JPEG, 15 Hz recorded (requested 30). Lab: Front/Gripper **160×120**, `apply:false`. Do not stretch 16:9 into 4:3. Add a 848×480 capture path and a documented crop/rectify to the optic encoder, or retrain the crop on the real aspect.
-- [ ] **SIM-006 Names and mounts.** Lab `Front`/`Gripper` ≠ hardware `overview`/`wrist`. Wrong-name fallback on the ZMQ camera can silently swap feeds. Fail if the expected name is missing.
-- [ ] **SIM-007 Time.** Hardware timestamps are host publish/receive, not exposure. Dataset time is `frame_index/fps`. Lab ticks are LIF-bound (150 steps) and much slower than 15 Hz. Log capture vs receive vs command time in the sim; inject 100–500 ms age and two-camera skew.
-- [ ] **SIM-008 Missing feedback → zero.** Follower `_present_pos(strict=False)` substitutes `0.0` when state is missing. `get_joint_positions` is strict. Sim MCP never lies that way. Add a fault: drop a joint, paint 0°, and require the controller to withhold commands (today it would treat folded-zero as real).
-- [ ] **SIM-009 connect() enables torque.** Lab MCP connect does not move the arm. Hardware `connect()` → `enable_all()`. Model connect / arm / command / hold / home as separate ops. Home interpolates to all-zero (gripper shut) at ~20°/s and is not collision-free.
-- [ ] **SIM-010 Reset is motion.** Lab reset respawns the cube. Hardware `/reset` and recording teardown drive joints to calibrated zero. No object teleport. Sim hardware-profile must not respawn on reset.
-- [ ] **SIM-011 Dynamics.** Lab is kinematic; cube attach is Boolean. Need gravity, compliance, slip, and a table. Cube-into-cup teleop success is not a 20 mm level-hold oracle.
-- [ ] **SIM-012 Cadence.** Dual demos ran ~14.5 Hz; ACT chunks were hundreds of ms. Crop LIF is slower still. Freeze a policy period (propose 2 Hz command, 15 Hz cameras) and train/eval at that period. Do not assume one sim tick = one camera frame.
+Offline hardware-profile: `controller/rebot_adapter/b601.py` + `camera_contract.py`. Default live path is still Mac MCP TCP (`run_dn_bus.py`, FakeRobot, Front/Gripper 160×120). This plant does not open `/dev/ttyACM0` or call `enable_all()`.
+
+- [x] **SIM-001 Cartesian vs joints.** Offline B601 plant with CAN order `shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_yaw, wrist_roll, gripper`. `HardwareAdapter` round-trips TCP Δmm ↔ those seven names via URDF FK / DLS IK. Mac MCP TCP path unchanged. **Still needed:** Phase 2 measured FK table (`data/calibration/b601-v1.json`).
+- [x] **SIM-002 Gripper units.** Hardware aperture 0° shut → −270° open; lab 0–90 mm. Versioned **fake-v0** linear curve (`data/calibration/b601-fake-v0.json`, `measured: false`). Mixing mm and degrees raises `UnitMixError` and does not clip a positive mm value to 0° closed. FORCE_POS ratio 0.07 is recorded, unused until measured. **Still needed:** caliper open/close hysteresis.
+- [x] **SIM-003 No magic attach.** Hardware-profile cube has `grasp_estimated` / `grasp_label="estimated"` only — no `attached` oracle. Mac lab FakeRobot AABB attach unchanged.
+- [x] **SIM-004 keep_level / floor.** `send_action` moves joints independently (no implicit keep_level). Wrist-flex unlevels the tool; TCP below table clearance is a collision and is not applied. IK `keep_level` / `fingers_down` are explicit adapter flags. Home is not collision-free. **Still needed:** measured table height / keep-out.
+- [x] **SIM-005 Camera contract.** Hardware capture is 848×480. `crop_rectify_to_encoder` center-crops 16:9→4:3 then scales to 160×120 (no stretch). Lab Front/Gripper 160×120 `apply:false` unchanged. **Still needed:** measured rig crop or retrain on real aspect.
+- [x] **SIM-006 Names and mounts.** Hardware names `wrist`/`overview`; lab `Gripper`/`Front`. Missing or swapped names raise `CameraContractError` (no first-feed fallback). `capture_rgbs` refuses a mismatched `camera` field.
+- [x] **SIM-007 Time.** Timed frames log `capture_time`, `receive_time`, `command_time`, `age_s`. Plant can inject 100–500 ms age and two-camera skew. Timestamps are still host-side, not exposure.
+- [x] **SIM-008 Missing feedback → zero.** `present_pos(strict=False)` paints 0° on a dropped joint; `get_joint_positions(strict=True)` raises. Adapter withholds rather than commanding the painted folded-zero. Incomplete `.pos` dicts are not zero-filled on the adapter path.
+- [x] **SIM-009 connect() enables torque.** `connect` / `arm` / `command` / `hold` / `home` are separate. `connect()` does not enable torque or move. Home interpolates all joints (gripper shut) at 20°/s and is not a collision-free plan. No `enable_all()` call.
+- [x] **SIM-010 Reset is motion.** Hardware-profile `reset`/`home` drive joints toward zero and do **not** respawn the cube. Lab MCP `rebot_set_cube` / cleanup still may.
+- [x] **SIM-011 Dynamics.** Minimal gravity, table rest, and tilt/opening slip. Boolean attach is not the hold oracle. Not MuJoCo; not identified compliance.
+- [x] **SIM-012 Cadence.** Frozen `COMMAND_HZ=2`, `CAMERA_HZ=15` on `PlantClock` / `iter_schedule`. Camera and command events are independent; one LIF tick is not one camera frame.
 
 ## Not simulator bugs (leave them)
 

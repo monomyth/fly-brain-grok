@@ -1,0 +1,12 @@
+{
+  "version": "fake-v0",
+  "measured": false,
+  "closed_deg": 0.0,
+  "open_deg": -270.0,
+  "lab_closed_mm": 0.0,
+  "lab_open_mm": 90.0,
+  "force_pos_ratio": 0.07,
+  "open_table": [[0.0, 0.0], [-270.0, 90.0]],
+  "close_table": [[0.0, 0.0], [-270.0, 90.0]],
+  "note": "Linear placeholder until Phase 2 caliper hysteresis. Do not treat as measured."
+}
