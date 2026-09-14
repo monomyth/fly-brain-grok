@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebot_adapter.arm_host import OffHostError, require_arm_host
-from rebot_adapter.b601 import ARM_JOINTS, CAN_JOINTS, FailClosed, fk_pose, ik_arm, load_gripper_curve
+from rebot_adapter.b601 import ARM_JOINTS, CAN_JOINTS, FailClosed, READY_ARM_DEG, fk_pose, ik_arm, load_gripper_curve
 
 DZ_MM = 15.0
 MAX_DZ_MM = 25.0
@@ -94,6 +94,50 @@ def _make_robot():
     return RebotB601Follower(cfg)
 
 
+def plan_ready(arm_deg: np.ndarray) -> dict:
+    q1 = np.array(READY_ARM_DEG, dtype=np.float64)
+    p0 = fk_pose(arm_deg)
+    p1 = fk_pose(q1)
+    return {
+        "from_mm": p0.as_mm(),
+        "to_mm": p1.as_mm(),
+        "q0_deg": [float(x) for x in arm_deg],
+        "q1_deg": [float(x) for x in q1],
+        "max_delta_deg": float(np.max(np.abs(q1 - arm_deg))),
+        "keep_level": False,
+        "stays": True,
+    }
+
+
+def run_ready(*, go: bool) -> dict:
+    require_arm_host()
+    spec = load_gripper_curve("v1")
+    if go:
+        robot = _make_robot()
+        robot.connect(calibrate=False)
+        try:
+            obs = robot.get_observation()
+            q0 = _joints_from_obs(obs)
+            grip = float(obs.get("gripper.pos", 0.0))
+            plan = plan_ready(q0)
+            plan["gripper_deg"] = grip
+            plan["spec_version"] = spec.get("version")
+            for q in _interp(q0, np.array(plan["q1_deg"])):
+                robot.send_action(_action(q, grip))
+                time.sleep(1.0 / RATE_HZ)
+            plan["sent"] = True
+            plan["returned"] = False
+            return plan
+        finally:
+            robot.disconnect()
+    q0 = np.zeros(6)
+    plan = plan_ready(q0)
+    plan["sent"] = False
+    plan["note"] = "dry run. ./ready --go unfolds to spec Ready and stays. Clear the pad path."
+    plan["spec_version"] = spec.get("version")
+    return plan
+
+
 def run_hover(*, dz_mm: float, go: bool, hold_s: float) -> dict:
     require_arm_host()
     spec = load_gripper_curve("v1")
@@ -130,13 +174,17 @@ def run_hover(*, dz_mm: float, go: bool, hold_s: float) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="B601 TCP hover on isengard")
+    p.add_argument("--ready", action="store_true", help="Unfold to spec Ready and stay (not a 15 mm hover).")
     p.add_argument("--dz-mm", type=float, default=DZ_MM)
     p.add_argument("--go", action="store_true", help="Enable motors and move. Must be at the cell.")
     p.add_argument("--hold-s", type=float, default=1.0)
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args(argv)
     try:
-        result = run_hover(dz_mm=args.dz_mm, go=args.go, hold_s=args.hold_s)
+        if args.ready:
+            result = run_ready(go=args.go)
+        else:
+            result = run_hover(dz_mm=args.dz_mm, go=args.go, hold_s=args.hold_s)
     except OffHostError as exc:
         print(str(exc), file=sys.stderr)
         return 2

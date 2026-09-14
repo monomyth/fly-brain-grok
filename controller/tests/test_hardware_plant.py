@@ -263,6 +263,9 @@ def test_plan_hover_lifts_z():
     assert plan2["keep_level"] is False
     with pytest.raises(FailClosed):
         mod.plan_hover(q0, -5.0)
+    ready = mod.plan_ready(np.zeros(6))
+    assert ready["max_delta_deg"] > 90.0
+    assert ready["stays"] is True
 
 
 def test_plant_cameras_match_live_photometry():

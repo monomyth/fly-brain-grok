@@ -27,6 +27,8 @@ Geometry is spec (`b601-v1.json`: URDF + follower limits + linear 0–90 mm vs 0
 cd ~/robotics/grok
 ./hover           # print plan, no motors
 ./hover --go      # ENABLES TORQUE, lifts TCP 15 mm, returns. E-stop in reach.
+./ready           # print unfold plan, no motors
+./ready --go      # ENABLES TORQUE, unfolds to spec Ready (~95°) and STAYS. Clear the pad.
 ```
 
 Herdr and SSH are not an e-stop. `connect()` on the follower enables torque.
