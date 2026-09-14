@@ -207,6 +207,10 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
         "cos_cube_empty": cosine(dn_c, dn_b),
         "cos_cube_scramble": cosine(dn_c, dn_s),
         "cube_r1": cube_r["r1"],
+        "cube_L1": cube_r.get("L1"),
+        "cube_Mi1": cube_r.get("Mi1"),
+        "cube_T4": cube_r.get("T4"),
+        "cube_LC10": cube_r.get("LC10"),
         "scramble_r1": scr_r["r1"],
         "gf_hz_cube": float(cube_r["bus"][4]) if cube_r["bus"] else 0.0,
         "cube_command": cube_r["cmd"],
@@ -226,6 +230,39 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
     return live
 
 
+HW_GAIN_GRID = (1.5, 1.55, 1.58, 1.6, 1.62, 1.65, 1.7, 1.8, 2.0, 2.5)
+
+
+def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150, gains: tuple = HW_GAIN_GRID) -> dict:
+    """First gain that live_go's vs black. Default 1.5 is silent on the dim real table."""
+    from arm.lif_crop import CropLIF
+
+    last = None
+    sweep = []
+    for g in gains:
+        lif = CropLIF(crop, synaptic_gain=float(g), nsteps=nsteps)
+        hop = hop_hardware_frames(lif, overview, wrist, nsteps=nsteps)
+        hop["synaptic_gain"] = float(g)
+        sweep.append(
+            {
+                "gain": float(g),
+                "cube_dn_mean": hop["cube_dn_mean"],
+                "empty_dn_mean": hop["empty_dn_mean"],
+                "gf_hz_cube": hop["gf_hz_cube"],
+                "cube_is_abort": hop["cube_is_abort"],
+                "ok": hop["ok"],
+            }
+        )
+        last = hop
+        if hop["ok"]:
+            last["gain_sweep"] = sweep
+            return last
+    if last is None:
+        raise HwPhaseError("gain grid is empty")
+    last["gain_sweep"] = sweep
+    return last
+
+
 def hop_from_dir(lif, folder: Path, nsteps: int = 150) -> dict:
     folder = Path(folder)
     paths = {name: folder / f"{name}.jpg" for name in HW_CAMERAS}
@@ -240,6 +277,24 @@ def hop_from_dir(lif, folder: Path, nsteps: int = 150) -> dict:
     hop["capture"] = meta
     hop["paths"] = {k: str(v) for k, v in paths.items()}
     serials = (meta.get("serials") or {"wrist": SERIAL_WRIST, "overview": SERIAL_OVERVIEW})
+    hop["rig_id"] = rig_id(serials)
+    return hop
+
+
+def hop_search_from_dir(crop, folder: Path, nsteps: int = 150) -> dict:
+    folder = Path(folder)
+    paths = {name: folder / f"{name}.jpg" for name in HW_CAMERAS}
+    missing = [n for n, p in paths.items() if not p.is_file()]
+    if missing:
+        raise HwPhaseError(f"missing JPEGs: {missing}")
+    overview = load_hw_jpeg(paths["overview"], "overview")
+    wrist = load_hw_jpeg(paths["wrist"], "wrist")
+    meta_path = folder / "capture.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
+    hop = hop_search(crop, overview, wrist, nsteps=nsteps)
+    hop["capture"] = meta
+    hop["paths"] = {k: str(v) for k, v in paths.items()}
+    serials = meta.get("serials") or {"wrist": SERIAL_WRIST, "overview": SERIAL_OVERVIEW}
     hop["rig_id"] = rig_id(serials)
     return hop
 

@@ -141,6 +141,10 @@ def _vision_run(lif: CropLIF, front, grip, nsteps: int) -> dict:
         "bus": rates.vec.tolist(),
         "pools": {k: float(v) for k, v in rates.pools.items()},
         "r1": _mean_hz(hz, lif.crop.indices("photoreceptors_r1r6")),
+        "L1": _mean_hz(hz, lif.crop.indices("L1")),
+        "Mi1": _mean_hz(hz, lif.crop.indices("Mi1")),
+        "T4": _mean_hz(hz, lif.crop.indices("T4")),
+        "LC10": _mean_hz(hz, lif.crop.indices("LC10")),
         "t1": rates.t1_mn_hz,
         "cmd": unpack(rates, U0).__dict__,
     }

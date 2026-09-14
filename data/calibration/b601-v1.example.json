@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "measured": false,
+  "closed_deg": 0.0,
+  "open_deg": -270.0,
+  "lab_closed_mm": 0.0,
+  "lab_open_mm": 90.0,
+  "force_pos_ratio": 0.07,
+  "open_table": [],
+  "close_table": [],
+  "tcp_poses": [],
+  "table_z_mm": null,
+  "note": "Copy to b601-v1.json only after Phase 2 caliper/tape measurements. Empty tables must fail closed."
+}

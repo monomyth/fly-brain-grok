@@ -13,6 +13,7 @@ from rebot_adapter.hw_phase import (
     USB_336L,
     hop_from_dir,
     hop_hardware_frames,
+    hop_search,
     ownership_report,
     ssh_base,
 )
@@ -104,6 +105,30 @@ def test_hop_from_dir_requires_named_jpegs(tmp_path):
     hop = hop_from_dir(lif, folder, nsteps=100)
     assert hop["fly_picked"] is False
     assert "wrist" in hop["paths"]
+
+
+def test_sync_rsync_argv_is_not_can():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "hw_sync.py"
+    spec = importlib.util.spec_from_file_location("hw_sync", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cmds = mod.rsync_argv("isengard.local", "/home/monomyth/fly-brain-grok")
+    flat = " ".join(tok for cmd in cmds for tok in cmd)
+    assert "rsync" in flat
+    assert "/dev/ttyACM0" not in flat
+    assert all(cmd[0] == "rsync" for cmd in cmds)
+
+
+def test_hop_search_picks_working_gain_on_stub(tmp_path):
+    crop = write_stub_crop(tmp_path / "crop")
+    hop = hop_search(crop, _orange(), _orange(), nsteps=100, gains=(1.5, 2.5))
+    assert hop["ok"] is True
+    assert hop["fly_picked"] is False
+    assert hop["synaptic_gain"] == 1.5
+    assert hop["gain_sweep"][0]["ok"] is True
 
 
 def test_hardware_profile_rejects_lab_names():

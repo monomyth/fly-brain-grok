@@ -36,13 +36,18 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="B601 arm host gate")
     p.add_argument("--initiate", action="store_true", help="SSH from this Mac; do not open CAN here")
     p.add_argument("--host", default=DEFAULT_ARM_SSH)
-    p.add_argument("action", nargs="?", default="status", choices=("status", "command"))
+    p.add_argument("action", nargs="?", default="status", choices=("status", "command", "sync"))
     args = p.parse_args(argv)
 
     if args.initiate:
         if args.action == "command":
             print("command must execute on isengard; this machine cannot drive CAN", file=sys.stderr)
             return 2
+        if args.action == "sync":
+            sync_py = Path(__file__).resolve().parent / "hw_sync.py"
+            proc = subprocess.run([sys.executable, str(sync_py), "--host", args.host], check=False)
+            print(json.dumps({"initiated": True, "action": "sync", "can_open": False, "ok": proc.returncode == 0}))
+            return 0 if proc.returncode == 0 else 2
         try:
             argv_ssh = initiate_argv(args.host, ["hostname", "-s"])
         except OffHostError as exc:

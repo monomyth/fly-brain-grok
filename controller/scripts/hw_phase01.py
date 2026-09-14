@@ -53,16 +53,14 @@ def capture_ssh(host: str, frames: int, dest: Path) -> dict:
 
 def run_hop(folder: Path, stub: bool, steps: int, out: Path) -> dict:
     from arm.crop import build_crop, write_stub_crop
-    from arm.lif_crop import CropLIF
     from malecns_cache.paths import project_data
-    from rebot_adapter.hw_phase import hop_from_dir, write_json
+    from rebot_adapter.hw_phase import hop_search_from_dir, write_json
 
     if stub:
         crop = write_stub_crop(project_data() / "prepared" / "stub-hw-phase1")
     else:
         crop = build_crop()
-    lif = CropLIF(crop, nsteps=steps)
-    hop = hop_from_dir(lif, folder, nsteps=steps)
+    hop = hop_search_from_dir(crop, folder, nsteps=steps)
     hop["stub"] = stub
     write_json(out, hop)
     return hop

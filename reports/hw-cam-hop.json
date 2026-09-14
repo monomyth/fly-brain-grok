@@ -1,20 +1,24 @@
 {
   "split_cameras": true,
-  "cube_dn_mean": 0.0,
+  "cube_dn_mean": 9.488140106201172,
   "empty_dn_mean": 0.0,
   "scramble_dn_mean": 0.0,
-  "l2_cube_empty": 0.0,
-  "l2_cube_scramble": 0.0,
+  "l2_cube_empty": 1250.7776330062604,
+  "l2_cube_scramble": 1250.7776330062604,
   "cos_cube_empty": 0.0,
   "cos_cube_scramble": 0.0,
-  "cube_r1": 59.65847396850586,
+  "cube_r1": 59.73744201660156,
+  "cube_L1": 15.878379821777344,
+  "cube_Mi1": 0.0,
+  "cube_T4": 0.0,
+  "cube_LC10": 0.07806401699781418,
   "scramble_r1": 0.0,
-  "gf_hz_cube": 0.0,
+  "gf_hz_cube": 500.0000305175781,
   "cube_command": {
     "dx_mm": 0.0,
-    "dy_mm": 0.0,
+    "dy_mm": 0.6605617011740545,
     "dz_mm": 0.0,
-    "dgrip_mm": 0.0,
+    "dgrip_mm": 0.0843756810930446,
     "keep_level": true
   },
   "cube_is_abort": false,
@@ -24,7 +28,7 @@
   },
   "black_is_pixels": true,
   "empty_table_note": "black is zeros, not an empty-table capture",
-  "elapsed_s": 0.8009594170143828,
+  "elapsed_s": 0.8009689999744296,
   "encoder_wh": [
     160,
     120
@@ -34,9 +38,52 @@
     480
   ],
   "rig_id": "b601-orbbec-848x480-v0-1b983b849cf5",
-  "ok": false,
+  "ok": true,
   "fly_picked": false,
   "da_learned": false,
+  "synaptic_gain": 1.62,
+  "gain_sweep": [
+    {
+      "gain": 1.5,
+      "cube_dn_mean": 0.0,
+      "empty_dn_mean": 0.0,
+      "gf_hz_cube": 0.0,
+      "cube_is_abort": false,
+      "ok": false
+    },
+    {
+      "gain": 1.55,
+      "cube_dn_mean": 0.24968791007995605,
+      "empty_dn_mean": 0.0,
+      "gf_hz_cube": 0.0,
+      "cube_is_abort": false,
+      "ok": false
+    },
+    {
+      "gain": 1.58,
+      "cube_dn_mean": 0.9987516403198242,
+      "empty_dn_mean": 0.0,
+      "gf_hz_cube": 66.66667175292969,
+      "cube_is_abort": false,
+      "ok": false
+    },
+    {
+      "gain": 1.6,
+      "cube_dn_mean": 3.9950060844421387,
+      "empty_dn_mean": 0.0,
+      "gf_hz_cube": 300.0,
+      "cube_is_abort": false,
+      "ok": false
+    },
+    {
+      "gain": 1.62,
+      "cube_dn_mean": 9.488140106201172,
+      "empty_dn_mean": 0.0,
+      "gf_hz_cube": 500.0000305175781,
+      "cube_is_abort": false,
+      "ok": true
+    }
+  ],
   "capture": {
     "phase": 1,
     "connect_called": false,

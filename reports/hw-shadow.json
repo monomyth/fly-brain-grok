@@ -1,0 +1,28 @@
+{
+  "sent": false,
+  "can_open": false,
+  "connect_called": false,
+  "joints_estimated": true,
+  "ik_err_mm": 0.016345659521679847,
+  "joints_deg": {
+    "shoulder_pan": 0.06355256982853344,
+    "shoulder_lift": -92.77304649535401,
+    "elbow_flex": -82.04877511535288,
+    "wrist_flex": -10.720490114022365,
+    "wrist_yaw": -0.018205606084478028,
+    "wrist_roll": 0.005728496403603246,
+    "gripper": 0.0
+  },
+  "tcp_command": {
+    "dx_mm": 0.0,
+    "dy_mm": 0.6605617011740545,
+    "dz_mm": 0.0,
+    "dgrip_mm": 0.0843756810930446,
+    "keep_level": true
+  },
+  "hop_ok": true,
+  "synaptic_gain": 1.62,
+  "cube_dn_mean": 9.488140106201172,
+  "fly_picked": false,
+  "t": 1789357224.154913
+}

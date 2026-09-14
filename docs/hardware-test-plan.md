@@ -119,6 +119,18 @@ python scripts/hw_phase01.py --phase 1 --from-dir ../reports/hw-phase1-frames --
 python scripts/hw_arm.py --initiate --host isengard.local status
 ```
 
+Default CropLIF gain 1.5 leaves scored DNs at 0 on these JPEGs; 1.62–1.65 splits cube vs black without abort (`live_go`). Overview is still underexposed (`front_r1=0`). `hop_search` walks that grid. `fly_picked` stays false.
+
+Prep that does **not** move the arm:
+
+```sh
+python scripts/hw_phase01.py --phase 1 --from-dir ../reports/hw-phase1-frames --out ../reports
+python scripts/hw_arm.py --initiate --host isengard.local sync
+python scripts/hw_shadow.py --from-dir ../reports/hw-phase1-frames --out ../reports/hw-shadow.json
+```
+
+Shadow logs IK joints and never opens CAN. `--arm-live` is for running the same logger on isengard after sync.
+
 ## Immediate next step
 
-Phase 0–1: `scripts/hw_phase01.py` (cameras only). SIM-005/006 crop is in `rebot_adapter/camera_contract.py`.
+Phase 1 gain-search hop on saved frames; rsync controller to isengard; shadow IK log. No follower `connect()`.
