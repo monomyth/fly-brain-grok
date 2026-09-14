@@ -21,14 +21,13 @@ cd ~/robotics/grok
 
 ## Motion (you must be at the cell)
 
-Not wired in these scripts yet. When it is, you still have to:
+Geometry is spec (`b601-v1.json`: URDF + follower limits + linear 0–90 mm vs 0…−270°). Not caliper.
 
-1. Be there. Hardware e-stop in reach. Support the arm.
-2. Confirm `./phase0` shows CAN free and no motor process.
-3. Hand-fold zeros, gripper shut, then the usual `lerobot-calibrate` (that **does** enable motors).
-4. Caliper: open/close mm vs degrees → we write `b601-v1.json`.
-5. Tape TCP / table height.
-6. Only then: millimetre hovers, still on isengard, never from the Mac.
+```sh
+cd ~/robotics/grok
+./hover           # print plan, no motors
+./hover --go      # ENABLES TORQUE, lifts TCP 15 mm, returns. E-stop in reach.
+```
 
 Herdr and SSH are not an e-stop. `connect()` on the follower enables torque.
 

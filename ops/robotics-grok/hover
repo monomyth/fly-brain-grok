@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=env.sh
+. ./env.sh
+# LeRobot venv talks CAN. fly-brain on PYTHONPATH is IK only.
+export PYTHONPATH="${FB}/controller${PYTHONPATH:+:$PYTHONPATH}"
+exec "${LEROBOT_PY}" "$FB/controller/scripts/hw_hover.py" --out "$OUT/hw-hover.json" "$@"

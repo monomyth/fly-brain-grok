@@ -1,0 +1,26 @@
+{
+  "version": "v1",
+  "measured": false,
+  "source": "spec",
+  "urdf": "ReBot_Arm_DM",
+  "closed_deg": 0.0,
+  "open_deg": -270.0,
+  "lab_closed_mm": 0.0,
+  "lab_open_mm": 90.0,
+  "force_pos_ratio": 0.07,
+  "end_xyz_m": [0.0, 0.0, 0.15539],
+  "table_z_mm": 0.0,
+  "tcp_clear_mm": 8.0,
+  "joint_limits_deg": {
+    "shoulder_pan": [-150.0, 150.0],
+    "shoulder_lift": [-200.0, 1.0],
+    "elbow_flex": [-200.0, 1.0],
+    "wrist_flex": [-80.0, 90.0],
+    "wrist_yaw": [-90.0, 90.0],
+    "wrist_roll": [-90.0, 90.0],
+    "gripper": [-270.0, 0.0]
+  },
+  "open_table": [[0.0, 0.0], [-270.0, 90.0]],
+  "close_table": [[0.0, 0.0], [-270.0, 90.0]],
+  "note": "URDF + follower.json limits + linear jaw map. Not caliper or tape."
+}

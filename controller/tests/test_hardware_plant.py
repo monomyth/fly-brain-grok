@@ -232,6 +232,35 @@ def test_capture_rgbs_fails_on_wrong_name():
         capture_rgbs(SwapRobot(), ("Front", "Gripper"), width=32, height=24)
 
 
+def test_spec_v1_curve_loads():
+    from rebot_adapter.b601 import load_gripper_curve
+
+    blob = load_gripper_curve("v1")
+    assert blob["version"] == "v1"
+    assert blob["measured"] is False
+    assert blob["closed_deg"] == 0.0
+    assert blob["open_deg"] == -270.0
+
+
+def test_plan_hover_lifts_z():
+    import importlib.util
+    from pathlib import Path
+
+    from rebot_adapter.b601 import READY_ARM_DEG, FailClosed, fk_pose
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "hw_hover.py"
+    spec = importlib.util.spec_from_file_location("hw_hover", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    q0 = np.array(READY_ARM_DEG, dtype=np.float64)
+    z0 = fk_pose(q0).z_mm
+    plan = mod.plan_hover(q0, 15.0)
+    assert plan["to_mm"]["z"] == pytest.approx(z0 + 15.0)
+    assert plan["ik_err_mm"] < 5.0
+    with pytest.raises(FailClosed):
+        mod.plan_hover(q0, -5.0)
+
+
 def test_plant_cameras_match_live_photometry():
     plant = B601Plant.ready()
     frames = plant.capture_all()
