@@ -1,0 +1,22 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=env.sh
+. ./env.sh
+TICKS="${2:-3}"
+if [[ "${1:-}" != "--go" ]]; then
+  echo "dry: Ready, then ${TICKS} grab+fly-nudge (stay), then fold."
+  echo "  cd ~/robotics/grok && ./servo --go [ticks]"
+  exit 0
+fi
+fold_back() {
+  ./fold --go || true
+}
+trap fold_back EXIT
+./ready --go
+i=1
+while [ "$i" -le "$TICKS" ]; do
+  ./grab
+  ./nudge --go
+  i=$((i + 1))
+done

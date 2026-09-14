@@ -89,6 +89,8 @@ def make_plan(frames: Path, steps: int, stub: bool) -> dict:
     plan["hop_ok"] = hop.get("ok")
     plan["synaptic_gain"] = hop.get("synaptic_gain")
     plan["cube_dn_mean"] = hop.get("cube_dn_mean")
+    plan["feed"] = hop.get("feed")
+    plan["cube_command"] = hop.get("cube_command")
     plan["q0_is_folded_guess"] = True
     return plan
 
@@ -100,7 +102,7 @@ def apply_plan(plan: dict, *, go: bool) -> dict:
     if not go:
         plan = dict(plan)
         plan["sent"] = False
-        plan["note"] = "dry run. ./nudge --go applies the capped fly delta and returns."
+        plan["note"] = "dry run. ./nudge --go applies the capped fly delta and stays. Cycle/fold to zero."
         return plan
     robot = hover._make_robot()
     robot.connect(calibrate=False)
@@ -114,15 +116,11 @@ def apply_plan(plan: dict, *, go: bool) -> dict:
             robot.send_action(hover._action(q, grip))
             hover.time.sleep(1.0 / hover.RATE_HZ)
         hover._settle(robot, q1, grip)
-        hover.time.sleep(1.0)
-        for q in hover._interp(q1, q0):
-            robot.send_action(hover._action(q, grip))
-            hover.time.sleep(1.0 / hover.RATE_HZ)
-        hover._settle(robot, q0, grip)
         live["sent"] = True
-        live["returned"] = True
+        live["returned"] = False
         live["q_end_deg"] = [float(x) for x in hover._joints_from_obs(robot.get_observation())]
         live["gripper_deg"] = grip
+        live["feed"] = plan.get("feed")
         return live
     finally:
         robot.disconnect()

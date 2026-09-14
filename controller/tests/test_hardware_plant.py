@@ -16,6 +16,7 @@ from rebot_adapter.b601 import (
     GRIPPER_OPEN_DEG,
     HOME_RATE_DEG_S,
     OVERVIEW_MEAN,
+    READY_ARM_DEG,
     B601Plant,
     FailClosed,
     HardwareAdapter,
@@ -285,6 +286,10 @@ def test_clip_delta_scales_tiny_fly_command():
     assert big["used_mm"]["dy"] == pytest.approx(15.0)
     with pytest.raises(nudge.FailClosed):
         nudge.clip_delta(0.0, 0.0, 0.0)
+    q = np.array(READY_ARM_DEG, dtype=np.float64)
+    plan = nudge.plan_nudge(q, nudge.clip_delta(0.1, 1.3, -0.8))
+    assert plan["ik_err_mm"] < 5.0
+    assert plan["to_mm"]["y"] > plan["from_mm"]["y"]
 
 
 def test_plant_cameras_match_live_photometry():
