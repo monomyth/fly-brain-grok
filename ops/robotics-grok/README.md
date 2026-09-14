@@ -30,6 +30,8 @@ cd ~/robotics/grok
 ./ready           # print unfold plan, no motors
 ./ready --go      # ENABLES TORQUE, unfolds to spec Ready (~95°) and STAYS. Clear the pad.
 ./fold --go       # ENABLES TORQUE, returns to calibrated zeros and STAYS.
+./nudge           # hop last grab, print capped fly Δmm. No motors.
+./nudge --go      # ENABLES TORQUE, apply that Δmm from current pose, return.
 ```
 
 Herdr and SSH are not an e-stop. `connect()` on the follower enables torque.

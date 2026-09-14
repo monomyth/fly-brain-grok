@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=env.sh
+. ./env.sh
+export PYTHONPATH="${FB}/controller${PYTHONPATH:+:$PYTHONPATH}"
+GO=0
+EXTRA=()
+for a in "$@"; do
+  if [ "$a" = "--go" ]; then
+    GO=1
+  else
+    EXTRA+=("$a")
+  fi
+done
+"$FB_PY" "$FB/controller/scripts/hw_nudge.py" --from-dir "$OUT/frames" --out "$OUT/hw-nudge-plan.json" "${EXTRA[@]}"
+if [ "$GO" -eq 1 ]; then
+  exec "$LEROBOT_PY" "$FB/controller/scripts/hw_nudge.py" --apply "$OUT/hw-nudge-plan.json" --go --out "$OUT/hw-nudge.json"
+fi

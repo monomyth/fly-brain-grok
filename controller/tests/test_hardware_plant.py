@@ -268,6 +268,25 @@ def test_plan_hover_lifts_z():
     assert ready["stays"] is True
 
 
+def test_clip_delta_scales_tiny_fly_command():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "hw_nudge.py"
+    spec = importlib.util.spec_from_file_location("hw_nudge", path)
+    nudge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(nudge)
+    d = nudge.clip_delta(0.0, 0.66, 0.0)
+    assert d["scaled"] is True
+    assert abs(d["used_mm"]["dy"]) == pytest.approx(10.0)
+    assert d["used_mm"]["dx"] == pytest.approx(0.0)
+    big = nudge.clip_delta(0.0, 40.0, 0.0)
+    assert big["scaled"] is False
+    assert big["used_mm"]["dy"] == pytest.approx(15.0)
+    with pytest.raises(nudge.FailClosed):
+        nudge.clip_delta(0.0, 0.0, 0.0)
+
+
 def test_plant_cameras_match_live_photometry():
     plant = B601Plant.ready()
     frames = plant.capture_all()
