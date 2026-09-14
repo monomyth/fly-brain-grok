@@ -19,12 +19,11 @@ from rebot_adapter.arm_host import OffHostError, require_arm_host
 from rebot_adapter.b601 import FOLDED_ARM_DEG, FailClosed, fk_pose, ik_arm
 
 CAP_MM = 15.0
-SCALE_TO_MM = 10.0
 TINY_MM = 2.0
 IK_ERR_MM = 5.0
 
 
-def clip_delta(dx: float, dy: float, dz: float, *, cap: float = CAP_MM, scale_to: float = SCALE_TO_MM) -> dict:
+def clip_delta(dx: float, dy: float, dz: float, *, cap: float = CAP_MM, scale_to: float = 0.0) -> dict:
     raw = np.array([float(dx), float(dy), float(dz)], dtype=np.float64)
     if not np.all(np.isfinite(raw)):
         raise FailClosed("non-finite unpack delta")
@@ -34,14 +33,14 @@ def clip_delta(dx: float, dy: float, dz: float, *, cap: float = CAP_MM, scale_to
     used = clipped
     if n < 1e-6:
         raise FailClosed("unpack delta is zero")
-    if n < TINY_MM:
-        used = clipped * (scale_to / n)
+    if float(scale_to) > 0.0 and n < TINY_MM:
+        used = clipped * (float(scale_to) / n)
         scaled = True
     return {
         "raw_mm": {"dx": float(raw[0]), "dy": float(raw[1]), "dz": float(raw[2])},
         "used_mm": {"dx": float(used[0]), "dy": float(used[1]), "dz": float(used[2])},
         "scaled": scaled,
-        "norm_raw_mm": n if not scaled else float(np.linalg.norm(raw)),
+        "norm_raw_mm": n,
     }
 
 
@@ -71,7 +70,7 @@ def _cmd_from_hop(hop: dict) -> tuple[float, float, float]:
     return float(cmd.get("dx_mm") or 0.0), float(cmd.get("dy_mm") or 0.0), float(cmd.get("dz_mm") or 0.0)
 
 
-def make_plan(frames: Path, steps: int, stub: bool) -> dict:
+def make_plan(frames: Path, steps: int, stub: bool, *, scale_to: float = 0.0) -> dict:
     from arm.crop import build_crop, write_stub_crop
     from malecns_cache.paths import project_data
     from rebot_adapter.hw_phase import hop_search_from_dir
@@ -84,7 +83,7 @@ def make_plan(frames: Path, steps: int, stub: bool) -> dict:
     if not hop.get("ok"):
         raise FailClosed("hop not ok; refuse nudge")
     dx, dy, dz = _cmd_from_hop(hop)
-    delta = clip_delta(dx, dy, dz)
+    delta = clip_delta(dx, dy, dz, scale_to=scale_to)
     plan = plan_nudge(np.array(FOLDED_ARM_DEG, dtype=np.float64), delta)
     plan["hop_ok"] = hop.get("ok")
     plan["synaptic_gain"] = hop.get("synaptic_gain")
@@ -134,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--go", action="store_true")
     p.add_argument("--stub", action="store_true")
     p.add_argument("--steps", type=int, default=150)
+    p.add_argument("--scale-to", type=float, default=0.0, help="If set, stretch tiny commands to this length. Default 0 = raw mm.")
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args(argv)
     try:
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.from_dir is None:
                 print("--from-dir is required to plan", file=sys.stderr)
                 return 2
-            result = make_plan(args.from_dir, steps=args.steps, stub=args.stub)
+            result = make_plan(args.from_dir, steps=args.steps, stub=args.stub, scale_to=args.scale_to)
             result["sent"] = False
     except (OffHostError, FailClosed) as exc:
         print(str(exc), file=sys.stderr)

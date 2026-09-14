@@ -30,7 +30,7 @@ cd ~/robotics/grok
 ./ready           # print unfold plan, no motors
 ./ready --go      # ENABLES TORQUE, unfolds to spec Ready (~95°) and STAYS. Clear the pad.
 ./fold --go       # ENABLES TORQUE, returns to calibrated zeros and STAYS.
-./nudge           # hop last grab, print capped fly Δmm. No motors.
+./nudge           # hop last grab, print RAW fly Δmm (no 10 mm stretch). No motors.
 ./nudge --go      # ENABLES TORQUE, apply that Δmm and STAY. Fold to zero.
 ./cycle --go      # Ready, grab, fly nudge (stay), always fold at the end.
 ./servo --go 3    # Ready, three grab+nudge stays, then fold. E-stop in reach.

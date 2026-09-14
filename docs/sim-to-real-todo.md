@@ -27,7 +27,7 @@ Offline hardware-profile: `controller/rebot_adapter/b601.py` + `camera_contract.
 - [x] **SIM-011 Dynamics.** Minimal gravity, table rest, and tilt/opening slip. Boolean attach is not the hold oracle. Not MuJoCo; not identified compliance.
 - [x] **SIM-012 Cadence.** Frozen `COMMAND_HZ=2`, `CAMERA_HZ=15` on `PlantClock` / `iter_schedule`. Camera and command events are independent; one LIF tick is not one camera frame.
 - [x] **SIM-013 Live photometry.** Folded: dim overview, orange on wrist. Ready: white-mat overview + black cube, wrist off-table. Hop uses `overview_pad` when the mat is on overview and not on wrist. **Still needed:** wrist-down mount, measured rig crop.
-- [x] **SIM-014 Fly nudge stays.** Hardware `./nudge --go` applies capped DN Δmm and does not undo it. `./cycle` / `./servo` fold at the end.
+- [x] **SIM-014 Fly nudge stays.** Hardware `./nudge --go` applies **raw** clipped DN Δmm (no 10 mm stretch unless `--scale-to`) and does not undo it. `./cycle` / `./servo` fold at the end. Ready FK z≈409 mm is not table height; only relative deltas.
 
 ## Not simulator bugs (leave them)
 

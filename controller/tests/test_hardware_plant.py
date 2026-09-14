@@ -278,9 +278,11 @@ def test_clip_delta_scales_tiny_fly_command():
     nudge = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(nudge)
     d = nudge.clip_delta(0.0, 0.66, 0.0)
-    assert d["scaled"] is True
-    assert abs(d["used_mm"]["dy"]) == pytest.approx(10.0)
-    assert d["used_mm"]["dx"] == pytest.approx(0.0)
+    assert d["scaled"] is False
+    assert d["used_mm"]["dy"] == pytest.approx(0.66)
+    stretched = nudge.clip_delta(0.0, 0.66, 0.0, scale_to=10.0)
+    assert stretched["scaled"] is True
+    assert abs(stretched["used_mm"]["dy"]) == pytest.approx(10.0)
     big = nudge.clip_delta(0.0, 40.0, 0.0)
     assert big["scaled"] is False
     assert big["used_mm"]["dy"] == pytest.approx(15.0)
@@ -290,6 +292,19 @@ def test_clip_delta_scales_tiny_fly_command():
     plan = nudge.plan_nudge(q, nudge.clip_delta(0.1, 1.3, -0.8))
     assert plan["ik_err_mm"] < 5.0
     assert plan["to_mm"]["y"] > plan["from_mm"]["y"]
+
+
+def test_ready_plant_tcp_follows_raw_delta():
+    plant = B601Plant.ready()
+    plant.connect()
+    plant.arm()
+    adapter = HardwareAdapter(plant)
+    z0 = plant.tcp().z_mm
+    y0 = plant.tcp().y_mm
+    res = adapter.command_tcp(0.1, 1.3, -0.8, 0.0, keep_level=False)
+    assert res.sent is True
+    assert plant.tcp().y_mm > y0
+    assert plant.tcp().z_mm < z0
 
 
 def test_plant_cameras_match_live_photometry():
