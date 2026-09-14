@@ -32,6 +32,7 @@ cd ~/robotics/grok
 ./fold --go       # ENABLES TORQUE, returns to calibrated zeros and STAYS.
 ./nudge           # hop last grab, print capped fly Δmm. No motors.
 ./nudge --go      # ENABLES TORQUE, apply that Δmm from current pose, return.
+./cycle --go      # Ready, grab, fly nudge, always fold at the end. E-stop in reach.
 ```
 
 Herdr and SSH are not an e-stop. `connect()` on the follower enables torque.

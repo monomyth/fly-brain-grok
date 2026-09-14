@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=env.sh
+. ./env.sh
+
+if [[ "${1:-}" != "--go" ]]; then
+  echo "dry: Ready, grab, fly nudge, fold. No motors."
+  echo "At the cell, e-stop in reach:"
+  echo "  cd ~/robotics/grok && ./cycle --go"
+  exit 0
+fi
+
+fold_back() {
+  ./fold --go || true
+}
+trap fold_back EXIT
+
+./ready --go
+./grab
+./nudge --go
