@@ -13,7 +13,15 @@ from PIL import Image
 from arm.hop_probe import MIN_CUBE_DN_HZ, _vision_run, live_go, phase_scramble
 from arm.unpack import command_is_abort
 from .arm_host import ssh_base
-from .camera_contract import HW_CAMERAS, HW_CAPTURE_WH, encoder_pair, require_size
+from .camera_contract import (
+    HW_CAMERAS,
+    HW_CAPTURE_WH,
+    encoder_pair,
+    pad_frac,
+    pad_like,
+    pad_roi_encoder,
+    require_size,
+)
 from .ownership import (
     CAMERA_MARKERS,
     MOTOR_MARKERS,
@@ -45,8 +53,16 @@ def rig_id(serials: dict, jpeg_wh: tuple[int, int] = HW_CAPTURE_WH) -> str:
 
 def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150) -> dict:
     """Crop 848×480 pair and compare table vs black. fly_picked stays false."""
-    frames = {"overview": overview, "wrist": wrist}
-    front, grip = encoder_pair(frames, "hardware")
+    ov_pad = pad_frac(overview)
+    wr_pad = pad_frac(wrist)
+    if ov_pad >= 0.12 and wr_pad < 0.5 * ov_pad:
+        front = pad_roi_encoder(overview)
+        grip = np.zeros_like(front)
+        feed = "overview_pad"
+    else:
+        frames = {"overview": overview, "wrist": wrist}
+        front, grip = encoder_pair(frames, "hardware")
+        feed = "wrist_grip"
     black = np.zeros_like(front)
     t0 = time.perf_counter()
     cube_r = _vision_run(lif, front, grip, nsteps)
@@ -86,6 +102,7 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
         "encoder_wh": [160, 120],
         "capture_wh": list(HW_CAPTURE_WH),
         "rig_id": RIG_ID,
+        "feed": feed,
     }
     live["ok"] = bool(live_go(live) and float(live["cube_dn_mean"]) >= MIN_CUBE_DN_HZ)
     live["fly_picked"] = False
@@ -102,8 +119,14 @@ def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150,
 
     last = None
     sweep = []
+    ov_pad = pad_frac(overview)
+    wr_pad = pad_frac(wrist)
+    pad = ov_pad >= 0.12 and wr_pad < 0.5 * ov_pad
     for g in gains:
-        lif = CropLIF(crop, synaptic_gain=float(g), nsteps=nsteps)
+        if pad:
+            lif = CropLIF(crop, synaptic_gain=float(g), nsteps=nsteps, luma_scale=4.0, chroma_scale=0.0)
+        else:
+            lif = CropLIF(crop, synaptic_gain=float(g), nsteps=nsteps)
         hop = hop_hardware_frames(lif, overview, wrist, nsteps=nsteps)
         hop["synaptic_gain"] = float(g)
         sweep.append(

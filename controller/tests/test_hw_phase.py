@@ -7,7 +7,7 @@ from PIL import Image
 
 from arm.crop import write_stub_crop
 from arm.lif_crop import CropLIF
-from rebot_adapter.camera_contract import CameraContractError, encoder_pair
+from rebot_adapter.camera_contract import CameraContractError, encoder_pair, pad_frac, pad_like, pad_roi_encoder
 from rebot_adapter.hw_phase import (
     USB_305,
     USB_336L,
@@ -142,6 +142,18 @@ def test_hop_search_picks_working_gain_on_stub(tmp_path):
     assert hop["fly_picked"] is False
     assert hop["synaptic_gain"] == 1.5
     assert hop["gain_sweep"][0]["ok"] is True
+
+
+def test_pad_like_mat_vs_room():
+    mat = np.full((480, 848, 3), 40, dtype=np.uint8)
+    mat[200:470, 220:750] = 220
+    room = np.full((480, 848, 3), 70, dtype=np.uint8)
+    room[:200, :] = 30
+    assert pad_like(mat) is True
+    assert pad_like(room) is False
+    assert pad_frac(mat) > 2.0 * pad_frac(room)
+    roi = pad_roi_encoder(mat)
+    assert roi.shape == (120, 160, 3)
 
 
 def test_hardware_profile_rejects_lab_names():

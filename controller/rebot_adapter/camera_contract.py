@@ -111,6 +111,56 @@ def crop_rectify_to_encoder(rgb: np.ndarray, encoder_wh: tuple[int, int] = ENCOD
     return out
 
 
+def _luma01(rgb: np.ndarray) -> np.ndarray:
+    x = np.asarray(rgb, dtype=np.float32)
+    if float(np.max(x)) > 1.5:
+        x = x / 255.0
+    return 0.2126 * x[:, :, 0] + 0.7152 * x[:, :, 1] + 0.0722 * x[:, :, 2]
+
+
+def pad_frac(rgb: np.ndarray) -> float:
+    """Fraction of the lower field that looks like the white mat."""
+    arr = _as_rgb(rgb, "pad")
+    h = int(arr.shape[0])
+    lower = arr[h // 3 :, :, :]
+    lum = _luma01(lower)
+    x = lower.astype(np.float32)
+    if float(np.max(x)) > 1.5:
+        x = x / 255.0
+    sat = x.max(axis=2) - x.min(axis=2)
+    mat = (lum > 0.55) & (sat < 0.2)
+    return float(mat.mean())
+
+
+def pad_like(rgb: np.ndarray, *, min_frac: float = 0.12) -> bool:
+    return pad_frac(rgb) >= float(min_frac)
+
+
+def pad_roi_encoder(rgb: np.ndarray, encoder_wh: tuple[int, int] = ENCODER_WH) -> np.ndarray:
+    """Crop the white-mat bbox (ignore upper third) and scale to the encoder."""
+    arr = _as_rgb(rgb, "overview")
+    h, w = int(arr.shape[0]), int(arr.shape[1])
+    lum = _luma01(arr)
+    x = arr.astype(np.float32)
+    if float(np.max(x)) > 1.5:
+        x = x / 255.0
+    sat = x.max(axis=2) - x.min(axis=2)
+    mat = (lum > 0.55) & (sat < 0.2)
+    mat[: h // 3, :] = False
+    ys, xs = np.where(mat)
+    if ys.size < 100:
+        return crop_rectify_to_encoder(arr, encoder_wh)
+    y0, y1 = int(ys.min()), int(ys.max()) + 1
+    x0, x1 = int(xs.min()), int(xs.max()) + 1
+    roi = arr[y0:y1, x0:x1]
+    ew, eh = int(encoder_wh[0]), int(encoder_wh[1])
+    img = Image.fromarray(_to_u8(roi)).resize((ew, eh), Image.Resampling.BILINEAR)
+    out = np.asarray(img, dtype=np.float32)
+    if float(out.max()) > 1.5:
+        out = out / 255.0
+    return out
+
+
 def encoder_pair(frames: dict, profile: str) -> list[np.ndarray]:
     """Two encoder-sized RGBs in Front/Gripper (overview/wrist) order."""
     if profile == "lab":
