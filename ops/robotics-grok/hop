@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=env.sh
+. ./env.sh
+exec "$FB_PY" "$FB/controller/scripts/hw_phase01.py" --phase 1 --from-dir "$OUT/frames" --out "$OUT"

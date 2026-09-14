@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=env.sh
+. ./env.sh
+# Orbbec USB only. Does not open the B601 follower.
+exec "$ORBBEC_PY" "$FB/controller/scripts/hw_orbbec_grab.py" --out "$OUT/frames" --frames "${1:-15}"
