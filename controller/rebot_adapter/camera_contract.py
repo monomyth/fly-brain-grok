@@ -119,10 +119,10 @@ def _luma01(rgb: np.ndarray) -> np.ndarray:
 
 
 def pad_frac(rgb: np.ndarray) -> float:
-    """Fraction of the lower field that looks like the white mat."""
+    """Fraction of the lower-center field that looks like the white mat."""
     arr = _as_rgb(rgb, "pad")
-    h = int(arr.shape[0])
-    lower = arr[h // 3 :, :, :]
+    h, w = int(arr.shape[0]), int(arr.shape[1])
+    lower = arr[h // 3 :, int(0.2 * w) : int(0.8 * w), :]
     lum = _luma01(lower)
     x = lower.astype(np.float32)
     if float(np.max(x)) > 1.5:
