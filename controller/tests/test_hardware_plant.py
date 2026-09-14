@@ -288,7 +288,7 @@ def test_clip_delta_scales_tiny_fly_command():
 
 
 def test_plant_cameras_match_live_photometry():
-    plant = B601Plant.ready()
+    plant = B601Plant()
     frames = plant.capture_all()
     ov = np.asarray(frames["overview"].rgb)
     wr = np.asarray(frames["wrist"].rgb)

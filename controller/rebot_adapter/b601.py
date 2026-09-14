@@ -518,6 +518,25 @@ def _paint_cube(img: np.ndarray, cube: CubeState, *, wrist: bool) -> np.ndarray:
     return out
 
 
+def _unfolded(joints: dict) -> bool:
+    return float(joints.get("shoulder_lift", 0.0)) < -40.0
+
+
+def _ready_overview(cube: CubeState) -> np.ndarray:
+    w, h = HW_CAPTURE_WH
+    img = np.full((h, w, 3), 0.12, dtype=np.float32)
+    img[200:470, 220:750] = 0.86
+    if cube.present:
+        cx = int(np.clip(0.5 * w + cube.y_mm, 280, 680))
+        cy = int(np.clip(0.72 * h - cube.x_mm * 0.05, 240, 430))
+        img[cy - 18 : cy + 18, cx - 18 : cx + 18] = 0.05
+    return img
+
+
+def _ready_wrist() -> np.ndarray:
+    return np.full((HW_CAPTURE_WH[1], HW_CAPTURE_WH[0], 3), 0.27, dtype=np.float32)
+
+
 class B601Plant:
     """Seven-channel joint plant. Joints move independently; cube is not welded."""
 
@@ -722,7 +741,10 @@ class B601Plant:
     def capture(self, name: str) -> TimedFrame:
         if name not in HW_CAMERAS:
             raise CameraContractError(f"hardware cameras are {HW_CAMERAS}, not {name!r}")
-        rgb = _paint_cube(_blank_hw_rgb(name), self.cube, wrist=(name == "wrist"))
+        if _unfolded(self.joints):
+            rgb = _ready_overview(self.cube) if name == "overview" else _ready_wrist()
+        else:
+            rgb = _paint_cube(_blank_hw_rgb(name), self.cube, wrist=(name == "wrist"))
         capture_t = self.clock.t
         if name == "overview":
             capture_t = self.clock.t - abs(self.camera_skew_s)

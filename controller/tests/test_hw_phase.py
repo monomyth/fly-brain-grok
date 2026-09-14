@@ -127,12 +127,28 @@ def test_hop_search_wrist_only_cube_on_plant(tmp_path):
     from rebot_adapter.b601 import B601Plant
 
     crop = write_stub_crop(tmp_path / "crop")
-    plant = B601Plant.ready()
+    plant = B601Plant()
     frames = plant.capture_all()
     hop = hop_search(crop, frames["overview"].rgb, frames["wrist"].rgb, nsteps=100, gains=(1.5, 2.5))
     assert hop["fly_picked"] is False
     assert hop["ok"] is True
+    assert hop.get("feed") != "overview_pad"
     assert float(hop["cube_dn_mean"]) > float(hop["empty_dn_mean"])
+
+
+def test_hop_search_ready_uses_overview_pad(tmp_path):
+    from rebot_adapter.b601 import B601Plant
+    from rebot_adapter.camera_contract import pad_frac
+
+    crop = write_stub_crop(tmp_path / "crop")
+    plant = B601Plant.ready()
+    frames = plant.capture_all()
+    ov, wr = frames["overview"].rgb, frames["wrist"].rgb
+    assert pad_frac(ov) > 2.0 * pad_frac(wr)
+    hop = hop_search(crop, ov, wr, nsteps=100, gains=(1.5, 2.5))
+    assert hop["feed"] == "overview_pad"
+    assert hop["fly_picked"] is False
+    assert hop["ok"] is True
 
 
 def test_hop_search_picks_working_gain_on_stub(tmp_path):
