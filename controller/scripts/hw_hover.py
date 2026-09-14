@@ -16,7 +16,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebot_adapter.arm_host import OffHostError, require_arm_host
-from rebot_adapter.b601 import ARM_JOINTS, CAN_JOINTS, FailClosed, READY_ARM_DEG, fk_pose, ik_arm, load_gripper_curve
+from rebot_adapter.b601 import (
+    ARM_JOINTS,
+    CAN_JOINTS,
+    FOLDED_ARM_DEG,
+    FailClosed,
+    READY_ARM_DEG,
+    fk_pose,
+    ik_arm,
+    load_gripper_curve,
+)
 
 DZ_MM = 15.0
 MAX_DZ_MM = 25.0
@@ -64,6 +73,18 @@ def _action(arm_deg: np.ndarray, grip: float) -> dict:
     return out
 
 
+def _settle(robot, arm_deg: np.ndarray, grip: float, *, seconds: float = 2.0) -> None:
+    deadline = time.time() + seconds
+    goal = np.asarray(arm_deg, dtype=np.float64)
+    while time.time() < deadline:
+        robot.send_action(_action(goal, grip))
+        obs = robot.get_observation()
+        q = _joints_from_obs(obs)
+        if float(np.max(np.abs(q - goal))) < 2.0:
+            return
+        time.sleep(1.0 / RATE_HZ)
+
+
 def _interp(q0: np.ndarray, q1: np.ndarray) -> list[np.ndarray]:
     delta = float(np.max(np.abs(q1 - q0)))
     n = max(1, int(math_ceil(delta / STEP_DEG)))
@@ -88,17 +109,18 @@ def _make_robot():
         reset_to_calibrated_zero=False,
         control_mode="pos_vel",
         pos_vel_velocity=[15.0, 15.0, 15.0, 15.0, 15.0, 15.0, 30.0],
-        max_relative_target=3.0,
+        max_relative_target=15.0,
         cameras={},
     )
     return RebotB601Follower(cfg)
 
 
-def plan_ready(arm_deg: np.ndarray) -> dict:
-    q1 = np.array(READY_ARM_DEG, dtype=np.float64)
+def plan_pose(arm_deg: np.ndarray, target_deg, *, name: str) -> dict:
+    q1 = np.array(target_deg, dtype=np.float64)
     p0 = fk_pose(arm_deg)
     p1 = fk_pose(q1)
     return {
+        "pose": name,
         "from_mm": p0.as_mm(),
         "to_mm": p1.as_mm(),
         "q0_deg": [float(x) for x in arm_deg],
@@ -109,7 +131,15 @@ def plan_ready(arm_deg: np.ndarray) -> dict:
     }
 
 
-def run_ready(*, go: bool) -> dict:
+def plan_ready(arm_deg: np.ndarray) -> dict:
+    return plan_pose(arm_deg, READY_ARM_DEG, name="ready")
+
+
+def plan_fold(arm_deg: np.ndarray) -> dict:
+    return plan_pose(arm_deg, FOLDED_ARM_DEG, name="fold")
+
+
+def run_pose(*, go: bool, target_deg, name: str, note: str) -> dict:
     require_arm_host()
     spec = load_gripper_curve("v1")
     if go:
@@ -119,23 +149,44 @@ def run_ready(*, go: bool) -> dict:
             obs = robot.get_observation()
             q0 = _joints_from_obs(obs)
             grip = float(obs.get("gripper.pos", 0.0))
-            plan = plan_ready(q0)
+            plan = plan_pose(q0, target_deg, name=name)
             plan["gripper_deg"] = grip
             plan["spec_version"] = spec.get("version")
-            for q in _interp(q0, np.array(plan["q1_deg"])):
+            q1 = np.array(plan["q1_deg"])
+            for q in _interp(q0, q1):
                 robot.send_action(_action(q, grip))
                 time.sleep(1.0 / RATE_HZ)
+            _settle(robot, q1, grip)
             plan["sent"] = True
-            plan["returned"] = False
+            plan["returned"] = True
+            plan["q_end_deg"] = [float(x) for x in _joints_from_obs(robot.get_observation())]
             return plan
         finally:
             robot.disconnect()
-    q0 = np.zeros(6)
-    plan = plan_ready(q0)
+    q0 = np.array(READY_ARM_DEG if name == "fold" else FOLDED_ARM_DEG, dtype=np.float64)
+    plan = plan_pose(q0, target_deg, name=name)
     plan["sent"] = False
-    plan["note"] = "dry run. ./ready --go unfolds to spec Ready and stays. Clear the pad path."
+    plan["note"] = note
     plan["spec_version"] = spec.get("version")
     return plan
+
+
+def run_ready(*, go: bool) -> dict:
+    return run_pose(
+        go=go,
+        target_deg=READY_ARM_DEG,
+        name="ready",
+        note="dry run. ./ready --go unfolds to spec Ready and stays. Clear the pad path.",
+    )
+
+
+def run_fold(*, go: bool) -> dict:
+    return run_pose(
+        go=go,
+        target_deg=FOLDED_ARM_DEG,
+        name="fold",
+        note="dry run. ./fold --go returns to calibrated zeros and stays.",
+    )
 
 
 def run_hover(*, dz_mm: float, go: bool, hold_s: float) -> dict:
@@ -175,14 +226,20 @@ def run_hover(*, dz_mm: float, go: bool, hold_s: float) -> dict:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="B601 TCP hover on isengard")
     p.add_argument("--ready", action="store_true", help="Unfold to spec Ready and stay (not a 15 mm hover).")
+    p.add_argument("--fold", action="store_true", help="Return to calibrated zeros and stay.")
     p.add_argument("--dz-mm", type=float, default=DZ_MM)
     p.add_argument("--go", action="store_true", help="Enable motors and move. Must be at the cell.")
     p.add_argument("--hold-s", type=float, default=1.0)
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args(argv)
     try:
+        if args.ready and args.fold:
+            print("use only one of --ready or --fold", file=sys.stderr)
+            return 2
         if args.ready:
             result = run_ready(go=args.go)
+        elif args.fold:
+            result = run_fold(go=args.go)
         else:
             result = run_hover(dz_mm=args.dz_mm, go=args.go, hold_s=args.hold_s)
     except OffHostError as exc:

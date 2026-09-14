@@ -29,6 +29,7 @@ cd ~/robotics/grok
 ./hover --go      # ENABLES TORQUE, lifts TCP 15 mm, returns. E-stop in reach.
 ./ready           # print unfold plan, no motors
 ./ready --go      # ENABLES TORQUE, unfolds to spec Ready (~95°) and STAYS. Clear the pad.
+./fold --go       # ENABLES TORQUE, returns to calibrated zeros and STAYS.
 ```
 
 Herdr and SSH are not an e-stop. `connect()` on the follower enables torque.
