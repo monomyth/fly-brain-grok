@@ -26,6 +26,7 @@ Offline hardware-profile: `controller/rebot_adapter/b601.py` + `camera_contract.
 - [x] **SIM-010 Reset is motion.** Hardware-profile `reset`/`home` drive joints toward zero and do **not** respawn the cube. Lab MCP `rebot_set_cube` / cleanup still may.
 - [x] **SIM-011 Dynamics.** Minimal gravity, table rest, and tilt/opening slip. Boolean attach is not the hold oracle. Not MuJoCo; not identified compliance.
 - [x] **SIM-012 Cadence.** Frozen `COMMAND_HZ=2`, `CAMERA_HZ=15` on `PlantClock` / `iter_schedule`. Camera and command events are independent; one LIF tick is not one camera frame.
+- [x] **SIM-013 Live photometry.** Plant overview mean ≈ 7/255, wrist ≈ 72/255. Orange cube is painted on **wrist only** (live `front_r1` was 0). Default CropLIF gain 1.5 is silent on the real 59k crop; `hop_search` walks to 1.62. Stub crop still hops at 1.5. **Still needed:** 336L exposure, measured rig crop.
 
 ## Not simulator bugs (leave them)
 

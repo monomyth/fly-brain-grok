@@ -488,24 +488,28 @@ class CubeState:
         return {"x": self.x_mm, "y": self.y_mm, "z": self.z_mm}
 
 
-def _blank_hw_rgb() -> np.ndarray:
+# Dim overview, brighter wrist. Cube is a wrist-only orange patch.
+OVERVIEW_MEAN = 7.0 / 255.0
+WRIST_MEAN = 72.0 / 255.0
+
+
+def _blank_hw_rgb(name: str) -> np.ndarray:
     w, h = HW_CAPTURE_WH
-    img = np.zeros((h, w, 3), dtype=np.float32)
-    img[:, :] = (0.12, 0.12, 0.12)
-    return img
+    mean = OVERVIEW_MEAN if name == "overview" else WRIST_MEAN
+    return np.full((h, w, 3), mean, dtype=np.float32)
 
 
 def _paint_cube(img: np.ndarray, cube: CubeState, *, wrist: bool) -> np.ndarray:
     out = img.copy()
+    if not cube.present or not wrist:
+        return out
     h, w = out.shape[:2]
     sx = float(np.clip((cube.x_mm - 180.0) / 200.0, 0.05, 0.95))
-    sy = float(np.clip(0.5 + cube.y_mm / 160.0, 0.08, 0.92))
-    if wrist:
-        sy = float(np.clip(0.72 - cube.z_mm / 400.0, 0.2, 0.9))
+    sy = float(np.clip(0.72 - cube.z_mm / 400.0, 0.2, 0.9))
     cx = int(sx * (w - 1))
     cy = int(sy * (h - 1))
-    rw = max(8, int(w * 0.04))
-    rh = max(8, int(h * 0.06))
+    rw = max(160, int(w * 0.22))
+    rh = max(80, int(h * 0.22))
     y0, y1 = max(0, cy - rh), min(h, cy + rh)
     x0, x1 = max(0, cx - rw), min(w, cx + rw)
     out[y0:y1, x0:x1, 0] = 0.85
@@ -718,7 +722,7 @@ class B601Plant:
     def capture(self, name: str) -> TimedFrame:
         if name not in HW_CAMERAS:
             raise CameraContractError(f"hardware cameras are {HW_CAMERAS}, not {name!r}")
-        rgb = _paint_cube(_blank_hw_rgb(), self.cube, wrist=(name == "wrist"))
+        rgb = _paint_cube(_blank_hw_rgb(name), self.cube, wrist=(name == "wrist"))
         capture_t = self.clock.t
         if name == "overview":
             capture_t = self.clock.t - abs(self.camera_skew_s)

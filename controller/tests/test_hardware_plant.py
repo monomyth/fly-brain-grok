@@ -15,6 +15,7 @@ from rebot_adapter.b601 import (
     GRIPPER_JOINT,
     GRIPPER_OPEN_DEG,
     HOME_RATE_DEG_S,
+    OVERVIEW_MEAN,
     B601Plant,
     FailClosed,
     HardwareAdapter,
@@ -229,6 +230,22 @@ def test_capture_rgbs_fails_on_wrong_name():
 
     with pytest.raises(CameraContractError):
         capture_rgbs(SwapRobot(), ("Front", "Gripper"), width=32, height=24)
+
+
+def test_plant_cameras_match_live_photometry():
+    plant = B601Plant.ready()
+    frames = plant.capture_all()
+    ov = np.asarray(frames["overview"].rgb)
+    wr = np.asarray(frames["wrist"].rgb)
+    assert ov.shape == (480, 848, 3)
+    assert wr.shape == (480, 848, 3)
+    assert float(ov.mean()) < 0.05
+    assert float(wr.mean()) > 0.2
+    assert abs(float(ov.mean()) - OVERVIEW_MEAN) < 0.02
+    orange = wr[:, :, 0] - np.maximum(wr[:, :, 1], wr[:, :, 2])
+    assert float(orange.max()) > 0.4
+    ov_orange = ov[:, :, 0] - np.maximum(ov[:, :, 1], ov[:, :, 2])
+    assert float(ov_orange.max()) < 0.05
 
 
 def test_timed_frames_age_and_skew():
