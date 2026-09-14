@@ -55,7 +55,7 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
     """Crop 848×480 pair and compare table vs black. fly_picked stays false."""
     ov_pad = pad_frac(overview)
     wr_pad = pad_frac(wrist)
-    if ov_pad >= 0.2 and (ov_pad - wr_pad) >= 0.12:
+    if ov_pad >= 0.2:
         front = pad_roi_encoder(overview)
         grip = np.zeros_like(front)
         feed = "overview_pad"
@@ -110,7 +110,7 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
     return live
 
 
-HW_GAIN_GRID = (1.5, 1.55, 1.58, 1.6, 1.62, 1.65, 1.7, 1.8, 2.0, 2.5)
+HW_GAIN_GRID = (1.5, 1.55, 1.58, 1.6, 1.62, 1.65, 1.7, 1.8, 2.0, 2.1, 2.2, 2.5)
 
 
 def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150, gains: tuple = HW_GAIN_GRID) -> dict:
@@ -121,7 +121,7 @@ def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150,
     sweep = []
     ov_pad = pad_frac(overview)
     wr_pad = pad_frac(wrist)
-    pad = ov_pad >= 0.2 and (ov_pad - wr_pad) >= 0.12
+    pad = ov_pad >= 0.2
     for g in gains:
         if pad:
             lif = CropLIF(crop, synaptic_gain=float(g), nsteps=nsteps, luma_scale=4.0, chroma_scale=0.0)
