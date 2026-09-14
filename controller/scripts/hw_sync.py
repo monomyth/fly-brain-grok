@@ -45,7 +45,7 @@ def ensure_venv(host: str, remote: str) -> None:
     script = (
         f"mkdir -p {remote}/controller {remote}/data/prepared {remote}/data/checkpoints/rebot-pickup {remote}/data/calibration && "
         f"test -x {remote}/.venv/bin/python || python3 -m venv {remote}/.venv && "
-        f"{remote}/.venv/bin/pip install -q numpy scipy pillow"
+        f"{remote}/.venv/bin/pip install -q numpy scipy pillow pyarrow"
     )
     subprocess.run([*ssh_base(host), "bash", "-lc", script], check=True)
 

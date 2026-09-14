@@ -22,7 +22,7 @@ REMOTE_OUT = "/tmp/hw-phase1"
 
 
 def run_phase0(host: str | None) -> dict:
-    from rebot_adapter.hw_phase import collect_ownership_local, collect_ownership_ssh
+    from rebot_adapter.ownership import collect_ownership_local, collect_ownership_ssh
 
     if host:
         return collect_ownership_ssh(host)

@@ -8,7 +8,6 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 from . import paths
-from .prepare import prepare_graph
 
 
 @dataclass
@@ -32,6 +31,8 @@ def load_graph(release: str = "v1.0", prepare: bool = True) -> Connectome:
     npz_path = paths.graph_npz(release)
     meta_path = paths.graph_meta(release)
     if prepare and (not npz_path.exists() or not meta_path.exists()):
+        from .prepare import prepare_graph
+
         prepare_graph(release)
     blob = np.load(npz_path, allow_pickle=False)
     weights = csr_matrix(
