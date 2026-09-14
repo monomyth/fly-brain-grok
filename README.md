@@ -32,6 +32,7 @@ Last live 20 mm episode (`loop-da2`): `acting_map=dn_bus` on 29/29 ticks, `fly_p
 - `da_learned` is not claimed for `loop-da2` (that run logged `mbon_gate` 1.0). A new `--no-overlay` episode must gate from Kenyon current and move KC→MBON on the terminal pulse
 - T1 motor-neuron rates are logged, not the joystick
 - Live plant is the optic crop, not all ~166k MaleCNS cells
+- Physical B601 is joint-space CAN, not MCP TCP. Transfer plan: [docs/hardware-test-plan.md](docs/hardware-test-plan.md); simulator gaps: [docs/sim-to-real-todo.md](docs/sim-to-real-todo.md)
 
 ## Run
 
