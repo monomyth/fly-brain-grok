@@ -117,6 +117,10 @@ class NotArmedError(FailClosed):
     """Torque is off; connect() must not enable it."""
 
 
+class TableCollisionError(FailClosed):
+    """TCP would go through the table; joints unchanged."""
+
+
 def _rot_rpy(rpy: tuple[float, float, float]) -> np.ndarray:
     rx, ry, rz = (float(rpy[0]), float(rpy[1]), float(rpy[2]))
     cx, sx = math.cos(rx), math.sin(rx)
@@ -425,7 +429,7 @@ def action_from_joints(joints: dict[str, float]) -> dict[str, float]:
 
 
 def iter_schedule(duration_s: float, *, command_hz: float = COMMAND_HZ, camera_hz: float = CAMERA_HZ):
-    """Camera and command events on independent periods. Not one LIF tick per frame."""
+    """Camera and command events on independent periods."""
     if command_hz <= 0 or camera_hz <= 0:
         raise FailClosed("cadence Hz must be positive")
     n_cam = int(math.floor(float(duration_s) * float(camera_hz) + 1e-12))
@@ -584,7 +588,6 @@ class B601Plant:
         return out
 
     def present_pos(self, *, strict: bool = False) -> dict[str, float]:
-        """Follower missing-state path. strict=False paints 0°; that is not a folded pose."""
         return self.get_joint_positions(strict=strict)
 
     def tcp(self) -> TcpPose:
@@ -626,6 +629,18 @@ class B601Plant:
         for name in CAN_JOINTS:
             self.joints[name] = float(parsed[name])
 
+    def _cube_hang_mm(self) -> float:
+        return 0.5 * float(self.cube.size_mm) + 8.0
+
+    def _carry_cube(self) -> None:
+        pose = self.tcp()
+        cube = self.cube
+        hang = self._cube_hang_mm()
+        cube.x_mm = pose.x_mm
+        cube.y_mm = pose.y_mm
+        cube.z_mm = max(cube.rest_z_mm(), pose.z_mm - hang)
+        cube.vz_mm_s = 0.0
+
     def send_action(self, action: dict, *, fill_missing: bool = False) -> dict[str, float]:
         if not self.armed or not self.torque_enabled:
             raise NotArmedError("send_action while torque off")
@@ -634,12 +649,16 @@ class B601Plant:
         except IncompleteActionError as exc:
             if not fill_missing:
                 raise
-            # Driver substitute: missing keys become 0°. Adapter must not use this path.
             filled = dict(action)
             for name in exc.missing:
                 filled[f"{name}.pos"] = 0.0
             parsed = parse_action(filled)
+        held = self.estimate_grasp()["grasp_estimated"]
         self._apply_joints(parsed, homing=self.homing)
+        if self.table_collision:
+            raise TableCollisionError("table_collision")
+        if held:
+            self._carry_cube()
         self.last_command_time = self.clock.t
         self.clock.mark_command()
         return dict(self.joints)
@@ -666,10 +685,13 @@ class B601Plant:
         if dt is not None:
             self._home_step(dt)
 
-    def reset(self) -> None:
-        """Drive joints toward calibrated zero. Does not teleport the cube."""
-        if self.armed:
-            self.homing = True
+    def reset(self, dt: float | None = None) -> None:
+        """Return toward calibrated zero in joint space. Does not teleport the cube."""
+        if not self.armed:
+            return
+        self.homing = True
+        if dt is not None:
+            self._home_step(dt)
 
     def place_cube(self, x_mm: float, y_mm: float, size_mm: float = 20.0) -> None:
         self.cube = CubeState(x_mm=float(x_mm), y_mm=float(y_mm), z_mm=0.5 * float(size_mm) - 1.0, size_mm=float(size_mm))
@@ -684,12 +706,7 @@ class B601Plant:
         if not cube.present:
             return
         if grasp["grasp_estimated"]:
-            pose = self.tcp()
-            hang = 0.5 * cube.size_mm + 8.0
-            cube.x_mm = pose.x_mm
-            cube.y_mm = pose.y_mm
-            cube.z_mm = max(cube.rest_z_mm(), pose.z_mm - hang)
-            cube.vz_mm_s = 0.0
+            self._carry_cube()
             return
         cube.vz_mm_s -= GRAVITY_MM_S2 * dt
         cube.z_mm += cube.vz_mm_s * dt
@@ -782,6 +799,10 @@ class HardwareAdapter:
 
     def arm(self) -> None:
         self.plant.arm()
+        if self.last_reason == "not_armed":
+            self.fail_closed = False
+            self.withheld = False
+            self.last_reason = None
 
     def hold(self) -> None:
         self.plant.hold()
@@ -789,8 +810,8 @@ class HardwareAdapter:
     def home(self, dt: float | None = None) -> None:
         self.plant.home(dt)
 
-    def reset(self) -> None:
-        self.plant.reset()
+    def reset(self, dt: float | None = None) -> None:
+        self.plant.reset(dt)
 
     def _withhold(self, reason: str, *, sticky: bool = True) -> CommandResult:
         self.withheld = True
@@ -842,7 +863,7 @@ class HardwareAdapter:
         if self.fail_closed:
             return self._withhold(self.last_reason or "fail_closed")
         if not self.plant.armed:
-            return self._withhold("not_armed")
+            return self._withhold("not_armed", sticky=False)
         try:
             self.plant.get_joint_positions(strict=True)
         except MissingJointError as exc:
@@ -851,7 +872,10 @@ class HardwareAdapter:
             parsed = parse_action(action)
         except (UnitMixError, IncompleteActionError, FailClosed) as exc:
             return self._withhold(str(exc))
-        self.plant.send_action(action_from_joints(parsed), fill_missing=False)
+        try:
+            self.plant.send_action(action_from_joints(parsed), fill_missing=False)
+        except TableCollisionError:
+            return self._withhold("table_collision", sticky=False)
         self.withheld = False
         self.last_reason = None
         return CommandResult(sent=True, withheld=False, action=action_from_joints(parsed), fail_closed=False)
@@ -870,13 +894,15 @@ class HardwareAdapter:
         if dgrip_deg is not None:
             return self._withhold("dgrip_deg mixed into millimetre TCP command")
         if not self.plant.armed:
-            return self._withhold("not_armed")
+            return self._withhold("not_armed", sticky=False)
         try:
             self.plant.get_joint_positions(strict=True)
         except MissingJointError as exc:
             return self._withhold(f"missing:{exc.name}")
         pose = self.plant.tcp()
         target = {"x": pose.x_mm + float(dx_mm), "y": pose.y_mm + float(dy_mm), "z": pose.z_mm + float(dz_mm)}
+        if target["z"] < TABLE_Z_MM + TABLE_TCP_CLEAR_MM:
+            return self._withhold("table_collision", sticky=False)
         q, err = ik_arm(
             target,
             np.array([self.plant.joints[n] for n in ARM_JOINTS]),

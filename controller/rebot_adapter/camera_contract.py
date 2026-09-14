@@ -9,7 +9,7 @@ from PIL import Image
 
 LAB_CAMERAS = ("Front", "Gripper")
 HW_CAMERAS = ("wrist", "overview")
-# Same optic order as lab Front then Gripper. Not a silent rename.
+# Optic pair order: overview≡Front, wrist≡Gripper.
 HW_ENCODER_ORDER = ("overview", "wrist")
 LAB_CAPTURE_WH = (160, 120)
 HW_CAPTURE_WH = (848, 480)
@@ -48,7 +48,7 @@ def require_capture_name(shot: dict, expected: str) -> None:
 
 
 def select_named(frames: dict, expected: tuple[str, ...]) -> list:
-    """Pick frames by exact name. Does not fall back to the first feed."""
+    """Pick frames by exact name."""
     if not expected:
         raise CameraContractError("expected camera list is empty")
     if not isinstance(frames, dict):

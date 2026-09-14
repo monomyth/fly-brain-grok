@@ -20,6 +20,7 @@ from rebot_adapter.b601 import (
     HardwareAdapter,
     MissingJointError,
     NotArmedError,
+    TableCollisionError,
     UnitMixError,
     action_from_joints,
     fk_pose,
@@ -84,7 +85,7 @@ def test_adapter_tcp_delta_uses_seven_named_joints():
     assert abs(after.y_mm - before.y_mm) < 4.0
 
 
-def test_gripper_curve_roundtrip_and_measured_flag():
+def test_gripper_curve_roundtrip_and_measured_flag(tmp_path, monkeypatch):
     curve = load_gripper_curve("fake-v0")
     assert curve["measured"] is False
     assert gripper_mm_to_deg(0.0, curve) == pytest.approx(GRIPPER_CLOSED_DEG)
@@ -92,7 +93,11 @@ def test_gripper_curve_roundtrip_and_measured_flag():
     assert gripper_deg_to_mm(GRIPPER_OPEN_DEG, curve) == pytest.approx(90.0)
     assert gripper_deg_to_mm(-135.0, curve) == pytest.approx(45.0)
     with pytest.raises(FailClosed):
+        load_gripper_curve("v1-absent")
+    monkeypatch.setattr("rebot_adapter.b601.calibration_dir", lambda: tmp_path)
+    with pytest.raises(FailClosed):
         load_gripper_curve("v1")
+    assert load_gripper_curve("fake-v0")["measured"] is False
 
 
 def test_positive_mm_gripper_does_not_clip_to_closed():
@@ -148,9 +153,17 @@ def test_table_collision_blocks_command_not_home():
     assert err < 8.0
     before = dict(plant.joints)
     action = action_from_joints({**plant.joints, **{n: float(v) for n, v in zip(ARM_JOINTS, q)}})
-    plant.send_action(action)
+    with pytest.raises(TableCollisionError):
+        plant.send_action(action)
     assert plant.table_collision is True
     assert plant.joints["shoulder_lift"] == pytest.approx(before["shoulder_lift"])
+    adapter = HardwareAdapter(plant)
+    result = adapter.command_tcp(0.0, 0.0, 2.0 - pose.z_mm, 0.0, keep_level=True)
+    assert result.sent is False
+    assert result.withheld is True
+    assert result.reason == "table_collision"
+    assert plant.joints["shoulder_lift"] == pytest.approx(before["shoulder_lift"])
+    assert plant.tcp().z_mm == pytest.approx(pose.z_mm, abs=0.5)
     plant.home(dt=0.5)
     assert plant.joints["shoulder_lift"] != pytest.approx(before["shoulder_lift"])
 
@@ -282,11 +295,13 @@ def test_connect_does_not_enable_torque_or_move():
     adapter = HardwareAdapter(plant)
     refused = adapter.command_tcp(5.0, 0.0, 0.0, 0.0)
     assert refused.withheld
+    assert refused.reason == "not_armed"
     assert plant.joints == q0
-    plant.arm()
+    adapter.arm()
     assert plant.torque_enabled is True
-    plant.send_action(action)
-    assert plant.joints["shoulder_pan"] == pytest.approx(10.0)
+    sent = adapter.command_tcp(5.0, 0.0, 0.0, 0.0)
+    assert sent.sent and not sent.withheld
+    assert plant.tcp().x_mm != pytest.approx(fk_pose(np.array([q0[n] for n in ARM_JOINTS])).x_mm)
 
 
 def test_home_interpolates_toward_zero_at_20dps():
@@ -307,13 +322,18 @@ def test_home_interpolates_toward_zero_at_20dps():
 def test_reset_and_home_do_not_respawn_cube():
     plant = _armed_ready()
     plant.place_cube(200.0, 12.0, size_mm=20.0)
+    lift0 = plant.joints["shoulder_lift"]
     plant.reset()
+    assert plant.homing is True
     assert plant.cube.x_mm == pytest.approx(200.0)
     assert plant.cube.y_mm == pytest.approx(12.0)
-    plant.home(dt=2.0)
+    plant.step(1.0)
+    assert plant.joints["shoulder_lift"] == pytest.approx(lift0 + HOME_RATE_DEG_S)
+    assert plant.cube.x_mm == pytest.approx(200.0)
+    plant.home(dt=1.0)
     assert plant.cube.x_mm == pytest.approx(200.0)
     assert plant.cube.y_mm == pytest.approx(12.0)
-    assert plant.joints["shoulder_lift"] == pytest.approx(-95.0 + 2.0 * HOME_RATE_DEG_S)
+    assert plant.joints["shoulder_lift"] == pytest.approx(lift0 + 2.0 * HOME_RATE_DEG_S)
     assert abs(plant.cube.x_mm - 280.0) > 1.0
 
 
@@ -324,11 +344,15 @@ def test_gravity_and_slip_not_boolean_attach():
     plant.cube.z_mm = pose.z_mm
     plant.joints[GRIPPER_JOINT] = gripper_mm_to_deg(20.0, plant.curve)
     assert plant.estimate_grasp()["grasp_estimated"] is True
+    z_before = plant.cube.z_mm
     adapter = HardwareAdapter(plant)
     lifted = adapter.command_tcp(0.0, 0.0, 40.0, 0.0, keep_level=True)
     assert lifted.sent
     plant.step(0.05)
-    assert plant.cube.z_mm > 40.0
+    hang = 0.5 * plant.cube.size_mm + 8.0
+    assert plant.estimate_grasp()["grasp_estimated"] is True
+    assert plant.cube.z_mm == pytest.approx(plant.tcp().z_mm - hang, abs=2.0)
+    assert plant.cube.z_mm > z_before + 20.0
     assert "attached" not in plant.state()["objects"]["cube"]
 
     open_grip = action_from_joints({**plant.joints, GRIPPER_JOINT: GRIPPER_OPEN_DEG})
@@ -341,7 +365,7 @@ def test_gravity_and_slip_not_boolean_attach():
     plant.cube.z_mm = plant.tcp().z_mm
     plant.joints[GRIPPER_JOINT] = gripper_mm_to_deg(20.0, plant.curve)
     plant.step(0.0)
-    tilt = action_from_joints({**plant.joints, "wrist_roll": 40.0})
+    tilt = action_from_joints({**plant.joints, "wrist_flex": 50.0})
     plant.send_action(tilt)
     plant.step(0.02)
     assert plant.estimate_grasp()["grasp_estimated"] is False
