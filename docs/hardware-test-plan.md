@@ -102,8 +102,9 @@ USB and the Orbbec SDK only exist on isengard. SSH from this Mac is how a proces
 |---|---|---|
 | Phase 0 ownership (`lsusb`, `fuser`, process list) | **isengard process** (invoked over SSH) | Device nodes are local to that kernel |
 | Phase 1 JPEG grab | **isengard**, `orbbec/.venv` + `scripts/hw_orbbec_grab.py` | pyorbbecsdk talks to USB; grab then **exits** (no standing ZMQ publisher) |
-| Crop LIF hop-probe | **this repo on the Mac** | MaleCNS crop (~59k) lives here; two JPEGs are cheap to copy; isengard has no fly-brain tree |
-| Herdr pane | Optional log tail | Not an e-stop; not required for Phase 0–1 |
+| Crop LIF hop-probe | **this repo on the Mac** | MaleCNS crop (~59k) lives here; two JPEGs are cheap to copy; no motors |
+| **Arm / CAN / `connect()` / `send_action`** | **isengard only** | This Mac may **initiate** (`ssh` a process). It must not open `/dev/ttyACM0`. Gate: `rebot_adapter/arm_host.py` |
+| Herdr pane | Optional log tail | Not an e-stop; not a motor loop |
 
 Do not run `herdr --remote` from an agent for this. Do not `connect()` the follower. `--from-dir` replays saved `wrist.jpg`/`overview.jpg` without cameras.
 
@@ -114,6 +115,8 @@ First live grab (2026-09-13): serials matched (305 `CV2L761000FA`, 336L `CPC6463
 python scripts/hw_phase01.py --phase 0 --host isengard.local --out ../reports
 python scripts/hw_phase01.py --phase 01 --host isengard.local --out ../reports
 python scripts/hw_phase01.py --phase 1 --from-dir ../reports/hw-phase1-frames --stub
+# Mac may only start a remote process; CAN stays on isengard
+python scripts/hw_arm.py --initiate --host isengard.local status
 ```
 
 ## Immediate next step

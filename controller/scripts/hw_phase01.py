@@ -21,10 +21,6 @@ REMOTE_GRAB = "/tmp/hw_orbbec_grab.py"
 REMOTE_OUT = "/tmp/hw-phase1"
 
 
-def _ssh(host: str) -> list[str]:
-    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host]
-
-
 def run_phase0(host: str | None) -> dict:
     from rebot_adapter.hw_phase import collect_ownership_local, collect_ownership_ssh
 
@@ -36,8 +32,10 @@ def run_phase0(host: str | None) -> dict:
 def capture_ssh(host: str, frames: int, dest: Path) -> dict:
     dest.mkdir(parents=True, exist_ok=True)
     subprocess.run(["scp", "-o", "BatchMode=yes", str(GRAB), f"{host}:{REMOTE_GRAB}"], check=True)
+    from rebot_adapter.arm_host import ssh_base
+
     cmd = [
-        *_ssh(host),
+        *ssh_base(host),
         ORBBEC_PY,
         REMOTE_GRAB,
         "--out",

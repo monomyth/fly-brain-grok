@@ -14,6 +14,7 @@ from PIL import Image
 
 from arm.hop_probe import MIN_CUBE_DN_HZ, _vision_run, live_go, phase_scramble
 from arm.unpack import command_is_abort
+from .arm_host import ssh_base
 from .camera_contract import HW_CAMERAS, HW_CAPTURE_WH, encoder_pair, require_size
 
 USB_305 = "2bc5:0840"
@@ -123,10 +124,6 @@ def collect_ownership_local(host: str = "localhost", robotics: Path | None = Non
         crash_log=crash,
         host=host,
     )
-
-
-def ssh_base(host: str) -> list[str]:
-    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host]
 
 
 def collect_ownership_ssh(host: str, robotics: str = "/home/monomyth/robotics") -> dict:
