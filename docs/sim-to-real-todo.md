@@ -28,6 +28,7 @@ Offline hardware-profile: `controller/rebot_adapter/b601.py` + `camera_contract.
 - [x] **SIM-012 Cadence.** Frozen `COMMAND_HZ=2`, `CAMERA_HZ=15` on `PlantClock` / `iter_schedule`. Camera and command events are independent; one LIF tick is not one camera frame.
 - [x] **SIM-013 Live photometry.** Folded: dim overview, orange on wrist. Ready: white-mat overview + black cube, wrist off-table. Hop uses `overview_pad` when the mat is on overview and not on wrist. **Still needed:** wrist-down mount, measured rig crop.
 - [x] **SIM-014 Fly nudge stays.** Hardware `./nudge --go` applies **raw** clipped DN Δmm (no 10 mm stretch unless `--scale-to`) and does not undo it. `./cycle` / `./servo` fold at the end. Ready FK z≈409 mm is not table height; only relative deltas.
+- [x] **SIM-015 Teleop replay.** Episode 0 dense hop (`reports/hw-replay-ep0-dense.json`): MDN fires at 170 steps / gain 2.1. `corr(fly_z, teacher_z) ≈ -0.39`, `corr(MDN, teacher_z) ≈ +0.34`, `corr(DNa02, teacher_y) ≈ 0`. DNa01/DNp07/DNp10 stay 0 even at 400 steps. Do not overwrite `g-distill`. This crop bus does not unpack the pick.
 
 ## Not simulator bugs (leave them)
 

@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebot_adapter.b601 import fk_pose
-from rebot_adapter.hw_phase import hop_search, write_json
+from rebot_adapter.hw_phase import hop_pad_once, hop_search, write_json
 
 
 def tcp_row(q6: np.ndarray, grip: float, i: int) -> dict:
@@ -32,12 +32,15 @@ def dxyz(a: dict, b: dict) -> dict:
     return {k: float(b["xyz_mm"][k] - a["xyz_mm"][k]) for k in ("x", "y", "z")}
 
 
-def hop_jpegs(crop, overview: Path, wrist: Path, nsteps: int) -> dict:
+def hop_jpegs(crop, overview: Path, wrist: Path, nsteps: int, *, fixed_gain: float | None = None) -> dict:
     from PIL import Image
 
     ov = np.asarray(Image.open(overview).convert("RGB"))
     wr = np.asarray(Image.open(wrist).convert("RGB"))
-    hop = hop_search(crop, ov, wr, nsteps=nsteps)
+    if fixed_gain is not None:
+        hop = hop_pad_once(crop, ov, wr, gain=float(fixed_gain), nsteps=max(int(nsteps), 170))
+    else:
+        hop = hop_search(crop, ov, wr, nsteps=nsteps)
     return {
         "ok": hop.get("ok"),
         "feed": hop.get("feed"),
@@ -58,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--frames-dir", type=Path, required=True, help="subdirs or files overview_I.jpg wrist_I.jpg")
     p.add_argument("--indices", default="0,120,218,360")
     p.add_argument("--steps", type=int, default=150)
+    p.add_argument("--horizon", type=int, default=15, help="teacher TCP delta over this many 15 Hz frames")
+    p.add_argument("--fixed-gain", type=float, default=None)
     p.add_argument("--stub", action="store_true")
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args(argv)
@@ -79,10 +84,11 @@ def main(argv: list[str] | None = None) -> int:
         wr = args.frames_dir / f"wrist_{i}.jpg"
         row = {"i": i, "tcp": tcp_row(st[i, :6], float(st[i, 6]) if st.shape[1] > 6 else 0.0, i)}
         if ov.is_file() and wr.is_file():
-            hop = hop_jpegs(crop, ov, wr, args.steps)
+            hop = hop_jpegs(crop, ov, wr, args.steps, fixed_gain=args.fixed_gain)
             row["hop"] = hop
-            nxt = min(i + 15, len(st) - 1)
-            row["teacher_dxyz_1s_mm"] = dxyz(row["tcp"], tcp_row(st[nxt, :6], 0.0, nxt))
+            nxt = min(i + int(args.horizon), len(st) - 1)
+            row["teacher_dxyz_1s_mm"] = dxyz(row["tcp"], tcp_row(st[nxt, :6], float(st[nxt, 6]) if st.shape[1] > 6 else 0.0, nxt))
+            row["teacher_dgrip_deg"] = float(st[nxt, 6] - st[i, 6]) if st.shape[1] > 6 else 0.0
             cmd = hop.get("cube_command") or {}
             row["fly_dxyz_mm"] = {
                 "x": float(cmd.get("dx_mm") or 0.0),
@@ -100,15 +106,21 @@ def main(argv: list[str] | None = None) -> int:
         "fly_picked": False,
         "note": "Offline replay. fly command is one LIF tick; teacher_dxyz_1s_mm is ~1 s of teleop TCP.",
     }
-    buses = [np.asarray(h["hop"]["cube_bus"], dtype=np.float64) for h in hops if h.get("hop") and h["hop"].get("cube_bus")]
+    buses = []
     ys = []
+    fly_z = []
     for h in hops:
+        hop = h.get("hop") or {}
+        if not hop.get("cube_bus"):
+            continue
+        buses.append(np.asarray(hop["cube_bus"], dtype=np.float64))
         t = h.get("teacher_dxyz_1s_mm") or {}
         ys.append([float(t.get("x") or 0.0), float(t.get("y") or 0.0), float(t.get("z") or 0.0)])
+        fly_z.append(float((h.get("fly_dxyz_mm") or {}).get("z") or 0.0))
     fit = {"rank": None, "bus_std": None, "note": "need cube_bus on hops"}
     if len(buses) >= 2:
         X = np.stack(buses)
-        Y = np.asarray(ys[: len(buses)], dtype=np.float64)
+        Y = np.asarray(ys, dtype=np.float64)
         fit["bus_std"] = [float(x) for x in np.std(X, axis=0)]
         fit["bus_mean"] = [float(x) for x in np.mean(X, axis=0)]
         fit["teacher_std"] = [float(x) for x in np.std(Y, axis=0)]
@@ -121,8 +133,21 @@ def main(argv: list[str] | None = None) -> int:
         fit["mse"] = float(np.mean((pred - Y) ** 2))
         fit["pred"] = pred.round(2).tolist()
         fit["teacher"] = Y.round(2).tolist()
-        fit["note"] = "linear bus→1s TCP. Low bus_std means U cannot see the pick."
+        fit["note"] = "linear bus→TCP over --horizon frames. Low bus_std means U cannot see the pick."
+        mdn = X[:, 5]
+        tz = Y[:, 2]
+        if mdn.std() > 1e-6 and tz.std() > 1e-6:
+            fit["corr_mdn_teacher_z"] = float(np.corrcoef(mdn, tz)[0, 1])
+        a02 = X[:, 3]
+        ty = Y[:, 1]
+        if a02.std() > 1e-6 and ty.std() > 1e-6:
+            fit["corr_a02_teacher_y"] = float(np.corrcoef(a02, ty)[0, 1])
+        fz = np.asarray(fly_z, dtype=np.float64)
+        if fz.std() > 1e-6 and tz.std() > 1e-6:
+            fit["corr_fly_z_teacher_z"] = float(np.corrcoef(fz, tz)[0, 1])
     payload["fit"] = fit
+    payload["horizon_frames"] = int(args.horizon)
+    payload["fixed_gain"] = args.fixed_gain
     write_json(args.out, payload)
     print(json.dumps({"out": str(args.out), "hops": len(hops), "ok": [bool(h.get("hop") and h["hop"].get("ok")) for h in hops], "fit": fit}, indent=2))
     return 0

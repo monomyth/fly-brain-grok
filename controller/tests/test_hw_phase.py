@@ -13,6 +13,7 @@ from rebot_adapter.hw_phase import (
     USB_336L,
     hop_from_dir,
     hop_hardware_frames,
+    hop_pad_once,
     hop_search,
     ownership_report,
     ssh_base,
@@ -149,6 +150,18 @@ def test_hop_search_ready_uses_overview_pad(tmp_path):
     assert hop["feed"] == "overview_pad"
     assert hop["fly_picked"] is False
     assert hop["ok"] is True
+
+
+def test_hop_pad_once_on_ready_stub(tmp_path):
+    from rebot_adapter.b601 import B601Plant
+
+    crop = write_stub_crop(tmp_path / "crop")
+    plant = B601Plant.ready()
+    frames = plant.capture_all()
+    hop = hop_pad_once(crop, frames["overview"].rgb, frames["wrist"].rgb, gain=2.1, nsteps=170)
+    assert hop["feed"] == "overview_pad"
+    assert hop["fly_picked"] is False
+    assert "mdn_hz" in hop
 
 
 def test_hop_search_picks_working_gain_on_stub(tmp_path):

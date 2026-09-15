@@ -16,7 +16,7 @@ st = np.stack(g["observation.state"].map(lambda x: np.asarray(x, float).reshape(
 np.save(Path.home() / "robotics/grok/out/replay/ep0_state.npy", st)
 print("saved", st.shape)
 PY
-IDXS="${IDXS:-0,120,218,360}"
+IDXS="${IDXS:-0,30,60,90,120,150,180,210,240,270,300,330,360,390,420}"
 OV="$DS/videos/observation.images.overview/chunk-000/file-000.mp4"
 WR="$DS/videos/observation.images.wrist/chunk-000/file-000.mp4"
 IFS=',' read -ra IS <<< "$IDXS"
@@ -28,4 +28,6 @@ exec "$FB_PY" "$FB/controller/scripts/hw_replay.py" \
   --states "$WORK/ep0_state.npy" \
   --frames-dir "$WORK" \
   --indices "$IDXS" \
+  --fixed-gain 2.1 \
+  --horizon 8 \
   --out "$OUT/hw-replay.json"

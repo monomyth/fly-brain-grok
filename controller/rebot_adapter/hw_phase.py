@@ -113,6 +113,19 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
 
 
 HW_GAIN_GRID = (1.5, 1.55, 1.58, 1.6, 1.62, 1.65, 1.7, 1.8, 2.0, 2.1, 2.2, 2.5)
+PAD_HOP_STEPS = 170
+PAD_HOP_GAIN = 2.1
+
+
+def hop_pad_once(crop, overview: np.ndarray, wrist: np.ndarray, *, gain: float = PAD_HOP_GAIN, nsteps: int = PAD_HOP_STEPS) -> dict:
+    """One pad-luma hop. Use on teleop replay instead of walking the gain grid."""
+    from arm.lif_crop import CropLIF
+
+    n_use = max(int(nsteps), PAD_HOP_STEPS)
+    lif = CropLIF(crop, synaptic_gain=float(gain), nsteps=n_use, luma_scale=4.0, chroma_scale=0.0)
+    hop = hop_hardware_frames(lif, overview, wrist, nsteps=n_use)
+    hop["synaptic_gain"] = float(gain)
+    return hop
 
 
 def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150, gains: tuple = HW_GAIN_GRID) -> dict:
