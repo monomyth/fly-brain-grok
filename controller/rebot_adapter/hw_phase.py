@@ -94,6 +94,7 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
         "gf_hz_cube": float(cube_r["bus"][4]) if cube_r["bus"] else 0.0,
         "cube_command": cube_r["cmd"],
         "cube_bus": [float(x) for x in (cube_r["bus"] if cube_r["bus"] is not None else [])],
+        "mdn_hz": float(cube_r["bus"][5]) if cube_r["bus"] is not None and len(cube_r["bus"]) > 5 else 0.0,
         "cube_is_abort": command_is_abort(cube_r["cmd"]),
         "silence_command_zero": True,
         "empty": {"dn_mean": black_r["dn_mean"]},
@@ -123,12 +124,14 @@ def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150,
     ov_pad = pad_frac(overview)
     wr_pad = pad_frac(wrist)
     pad = ov_pad >= 0.2
+    # Pad luma needs ~170 LIF steps before MDN fires; 150 leaves dz=0.
+    n_use = max(int(nsteps), 170) if pad else int(nsteps)
     for g in gains:
         if pad:
-            lif = CropLIF(crop, synaptic_gain=float(g), nsteps=nsteps, luma_scale=4.0, chroma_scale=0.0)
+            lif = CropLIF(crop, synaptic_gain=float(g), nsteps=n_use, luma_scale=4.0, chroma_scale=0.0)
         else:
-            lif = CropLIF(crop, synaptic_gain=float(g), nsteps=nsteps)
-        hop = hop_hardware_frames(lif, overview, wrist, nsteps=nsteps)
+            lif = CropLIF(crop, synaptic_gain=float(g), nsteps=n_use)
+        hop = hop_hardware_frames(lif, overview, wrist, nsteps=n_use)
         hop["synaptic_gain"] = float(g)
         sweep.append(
             {
