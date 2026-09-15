@@ -46,6 +46,7 @@ def hop_jpegs(crop, overview: Path, wrist: Path, nsteps: int) -> dict:
         "gf_hz_cube": hop.get("gf_hz_cube"),
         "cube_is_abort": hop.get("cube_is_abort"),
         "cube_command": hop.get("cube_command"),
+        "cube_bus": hop.get("cube_bus"),
         "fly_picked": False,
     }
 
@@ -98,8 +99,31 @@ def main(argv: list[str] | None = None) -> int:
         "fly_picked": False,
         "note": "Offline replay. fly command is one LIF tick; teacher_dxyz_1s_mm is ~1 s of teleop TCP.",
     }
+    buses = [np.asarray(h["hop"]["cube_bus"], dtype=np.float64) for h in hops if h.get("hop") and h["hop"].get("cube_bus")]
+    ys = []
+    for h in hops:
+        t = h.get("teacher_dxyz_1s_mm") or {}
+        ys.append([float(t.get("x") or 0.0), float(t.get("y") or 0.0), float(t.get("z") or 0.0)])
+    fit = {"rank": None, "bus_std": None, "note": "need cube_bus on hops"}
+    if len(buses) >= 2:
+        X = np.stack(buses)
+        Y = np.asarray(ys[: len(buses)], dtype=np.float64)
+        fit["bus_std"] = [float(x) for x in np.std(X, axis=0)]
+        fit["bus_mean"] = [float(x) for x in np.mean(X, axis=0)]
+        fit["teacher_std"] = [float(x) for x in np.std(Y, axis=0)]
+        xc = X - X.mean(axis=0)
+        yc = Y - Y.mean(axis=0)
+        fit["rank"] = int(np.linalg.matrix_rank(xc, tol=1e-3))
+        # y ≈ W x  (no bias in centered)
+        w, *_ = np.linalg.lstsq(X, Y, rcond=None)
+        pred = X @ w
+        fit["mse"] = float(np.mean((pred - Y) ** 2))
+        fit["pred"] = pred.round(2).tolist()
+        fit["teacher"] = Y.round(2).tolist()
+        fit["note"] = "linear bus→1s TCP. Low bus_std means U cannot see the pick."
+    payload["fit"] = fit
     write_json(args.out, payload)
-    print(json.dumps({"out": str(args.out), "hops": len(hops), "ok": [h.get("hop", {}) and h["hop"].get("ok") for h in hops]}, indent=2))
+    print(json.dumps({"out": str(args.out), "hops": len(hops), "ok": [bool(h.get("hop") and h["hop"].get("ok")) for h in hops], "fit": fit}, indent=2))
     return 0
 
 

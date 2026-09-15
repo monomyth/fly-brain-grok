@@ -93,6 +93,7 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
         "scramble_r1": scr_r["r1"],
         "gf_hz_cube": float(cube_r["bus"][4]) if cube_r["bus"] else 0.0,
         "cube_command": cube_r["cmd"],
+        "cube_bus": [float(x) for x in (cube_r["bus"] if cube_r["bus"] is not None else [])],
         "cube_is_abort": command_is_abort(cube_r["cmd"]),
         "silence_command_zero": True,
         "empty": {"dn_mean": black_r["dn_mean"]},
