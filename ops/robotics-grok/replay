@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=env.sh
+. ./env.sh
+DS="${DS:-$HOME/robotics/datasets/cube_to_cup_dual_five_20260910}"
+WORK="$OUT/replay"
+mkdir -p "$WORK"
+"$LEROBOT_PY" - <<'PY'
+import numpy as np, pandas as pd
+from pathlib import Path
+ds = Path.home() / "robotics/datasets/cube_to_cup_dual_five_20260910"
+df = pd.read_parquet(ds / "data/chunk-000/file-000.parquet")
+g = df[df.episode_index == 0]
+st = np.stack(g["observation.state"].map(lambda x: np.asarray(x, float).reshape(-1)))
+np.save(Path.home() / "robotics/grok/out/replay/ep0_state.npy", st)
+print("saved", st.shape)
+PY
+IDXS="${IDXS:-0,120,218,360}"
+OV="$DS/videos/observation.images.overview/chunk-000/file-000.mp4"
+WR="$DS/videos/observation.images.wrist/chunk-000/file-000.mp4"
+IFS=',' read -ra IS <<< "$IDXS"
+for i in "${IS[@]}"; do
+  ffmpeg -y -hide_banner -loglevel error -i "$OV" -vf "select=eq(n\\,$i)" -vframes 1 "$WORK/overview_${i}.jpg"
+  ffmpeg -y -hide_banner -loglevel error -i "$WR" -vf "select=eq(n\\,$i)" -vframes 1 "$WORK/wrist_${i}.jpg"
+done
+exec "$FB_PY" "$FB/controller/scripts/hw_replay.py" \
+  --states "$WORK/ep0_state.npy" \
+  --frames-dir "$WORK" \
+  --indices "$IDXS" \
+  --out "$OUT/hw-replay.json"
