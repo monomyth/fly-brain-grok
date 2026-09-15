@@ -145,6 +145,8 @@ def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150,
         )
         last = hop
         if hop["ok"]:
+            if pad and float(hop.get("mdn_hz") or 0.0) < 1.0:
+                continue
             last["gain_sweep"] = sweep
             return last
     if last is None:

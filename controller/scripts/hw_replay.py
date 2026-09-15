@@ -47,6 +47,7 @@ def hop_jpegs(crop, overview: Path, wrist: Path, nsteps: int) -> dict:
         "cube_is_abort": hop.get("cube_is_abort"),
         "cube_command": hop.get("cube_command"),
         "cube_bus": hop.get("cube_bus"),
+        "mdn_hz": hop.get("mdn_hz"),
         "fly_picked": False,
     }
 
