@@ -4,6 +4,12 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .DS_Store
+docs/node_modules/
+docs/package.json
+docs/package-lock.json
+docs/.pptx-venv/
+docs/unpacked-teen/
+docs/teen-slides/
 docs/sorry-i-fucked-up.md
 artifacts/
 .env
