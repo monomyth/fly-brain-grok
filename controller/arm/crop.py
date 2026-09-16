@@ -546,7 +546,7 @@ def write_stub_crop(folder: Path) -> Crop:
 
 
 def write_dna01_inhibit_crop(folder: Path) -> Crop:
-    """Tiny crop: DNfl inhibits DNa01; DNp07/DNp10 have no edges."""
+    """Identity g must leave DNa01 dead so pad-gain tests cannot pass both ways."""
     folder.mkdir(parents=True, exist_ok=True)
     n = 8
     post = np.array([1, 2, 3, 3, 7, 6], dtype=np.int32)

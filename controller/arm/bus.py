@@ -87,7 +87,6 @@ def pool_rates(hz: np.ndarray, groups: dict[str, np.ndarray], abort_hz: float = 
 
 
 def pick_unpack_report(buses: np.ndarray, teacher_xyz: np.ndarray, fly_z: np.ndarray) -> dict:
-    """Correlations only. Does not fit U when DNa01/DNp07/DNp10 never move."""
     X = np.asarray(buses, dtype=np.float64)
     Y = np.asarray(teacher_xyz, dtype=np.float64)
     fz = np.asarray(fly_z, dtype=np.float64).reshape(-1)

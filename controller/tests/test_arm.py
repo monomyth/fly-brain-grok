@@ -17,7 +17,7 @@ from arm.hop_probe import (
     vision_ok,
     vision_probe,
 )
-from arm.lif_crop import CropLIF, pad_type_gains
+from arm.lif_crop import PAD_G_DNFL, CropLIF, pad_type_gains
 from arm.log import g_hash
 from arm.score import (
     ActingMap,
@@ -377,6 +377,8 @@ def test_hop_probe_stub(tmp_path, monkeypatch):
     # stub chain should light DNs under direct injection
     dn_row = next(row for row in report["hops"] if row["layer"] == "DNfl")
     assert dn_row["self_hz"] > 0.0
+    assert report["fly_picked"] is False
+    assert report["da_learned"] is False
 
 
 def test_pick_success_still_requires_hold():
@@ -2210,11 +2212,18 @@ def test_pick_unpack_report_does_not_fit_lying_u():
     Y[:, 0] = np.linspace(-10.0, 30.0, n)
     Y[:, 1] = np.linspace(-20.0, 40.0, n)
     Y[:, 2] = np.linspace(40.0, -80.0, n)
-    fly_z = -0.01 * X[:, 5]
-    silent = pick_unpack_report(X, Y, fly_z)
+    silent = pick_unpack_report(X, Y, -0.01 * X[:, 5])
     assert silent["can_unpack_pick"] is False
     assert "pred" not in silent
     assert "mse" not in silent
+
+    X_ac = X.copy()
+    X_ac[:, 2] = np.linspace(0.0, 200.0, n)
+    anti = pick_unpack_report(X_ac, Y, 0.01 * X[:, 5])
+    assert anti["corr_fly_z_teacher_z"] < 0.0
+    assert anti["can_unpack_pick"] is False
+    assert "pred" not in anti
+    assert "mse" not in anti
 
     X2 = X.copy()
     X2[:, 2] = np.linspace(0.0, 200.0, n)
@@ -2223,6 +2232,15 @@ def test_pick_unpack_report_does_not_fit_lying_u():
     live = pick_unpack_report(X2, Y2, Y2[:, 2])
     assert live["can_unpack_pick"] is True
     assert "pred" in live
+
+
+def test_type_gains_copied_off_caller_buffer(tmp_path):
+    crop = write_stub_crop(tmp_path)
+    g = pad_type_gains()
+    lif = CropLIF(crop, nsteps=100, type_gains=g)
+    g[GAIN_CLASSES.index("DNfl")] = 9.0
+    assert abs(float(lif.g[GAIN_CLASSES.index("DNfl")]) - float(PAD_G_DNFL)) < 1e-6
+    assert lif.g_trained is False
 
 
 def test_score_py_is_only_da_learned_true_assignment():

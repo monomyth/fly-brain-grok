@@ -711,6 +711,7 @@ def run(
         "elapsed_s": time.perf_counter() - t0,
         "note": note,
         "fly_picked": False,
+        "da_learned": False,
     }
     dest = dest or checkpoints_dir("rebot-pickup") / ("hop-probe-stub.json" if stub else "hop-probe.json")
     dest.parent.mkdir(parents=True, exist_ok=True)

@@ -54,7 +54,7 @@ class CropLIF:
             g_in = np.asarray(type_gains, dtype=np.float32).reshape(-1)
             if g_in.size != len(GAIN_CLASSES):
                 raise ValueError(f"type_gains must have {len(GAIN_CLASSES)} entries")
-            self.g = g_in
+            self.g = np.array(g_in, copy=True)
         self.g_init = np.array(self.g, copy=True)
         self.da_delta = np.zeros_like(self.crop.w0)
         indptr = crop.weights.indptr
