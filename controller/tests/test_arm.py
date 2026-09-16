@@ -2,8 +2,8 @@ from pathlib import Path
 
 import numpy as np
 
-from arm.bus import BusRates, pool_rates
-from arm.crop import GAIN_CLASSES, write_stub_crop
+from arm.bus import BusRates, dead_pools, pick_unpack_report, pool_rates
+from arm.crop import GAIN_CLASSES, write_dna01_inhibit_crop, write_stub_crop
 from arm.eye import camera_hex_spans, cube_chroma_frac, drive_camera, local_contrast, luma, orange_chroma, phase_scramble
 from arm.hop_probe import (
     DY_FLIP_MIN,
@@ -17,7 +17,7 @@ from arm.hop_probe import (
     vision_ok,
     vision_probe,
 )
-from arm.lif_crop import CropLIF
+from arm.lif_crop import CropLIF, pad_type_gains
 from arm.log import g_hash
 from arm.score import (
     ActingMap,
@@ -224,6 +224,50 @@ def test_unpack_zeros_when_silent(tmp_path):
     rates = pool_rates(hz, crop.groups)
     cmd = unpack(rates, U0)
     assert cmd.dx_mm == 0 and cmd.dy_mm == 0 and cmd.dz_mm == 0 and cmd.dgrip_mm == 0
+
+
+def test_unpack_does_not_invent_dx_from_silent_a01():
+    mdn = 800.0
+    vec = np.array([0.0, 120.0, 0.0, 90.0, 900.0, mdn, 0.0, 0.0], dtype=np.float64)
+    pools = {
+        "DNfl": 0.0,
+        "DNxl": 120.0,
+        "DNa01": 0.0,
+        "DNa02_L": 0.0,
+        "DNa02_R": 90.0,
+        "DNp01": 900.0,
+        "MDN": mdn,
+        "DNp07": 0.0,
+        "DNp10": 0.0,
+    }
+    rates = BusRates(
+        vec=vec,
+        pools=pools,
+        t1_mn_hz=0.0,
+        abort=False,
+        scored_mean_hz=200.0,
+        scored=np.array([200.0]),
+    )
+    cmd = unpack(rates, U0)
+    dead = dead_pools(pools)
+    u_big = UParams()
+    u_big.w_a01 = 50.0
+    cmd_big = unpack(rates, u_big)
+    assert "DNa01" in dead
+    assert "DNp07" in dead
+    assert "DNp10" in dead
+    assert abs(cmd.dx_mm) < 1e-9
+    assert abs(cmd_big.dx_mm) < 1e-9
+    assert abs(cmd.dz_mm) > 0.5
+    live_a01 = BusRates(
+        vec=np.array([0.0, 120.0, 400.0, 90.0, 900.0, mdn, 0.0, 0.0], dtype=np.float64),
+        pools={**pools, "DNa01": 400.0},
+        t1_mn_hz=0.0,
+        abort=False,
+        scored_mean_hz=200.0,
+        scored=np.array([200.0]),
+    )
+    assert abs(unpack(live_a01, U0).dx_mm) > 0.5
 
 
 def test_unpack_does_not_use_dnp20(tmp_path):
@@ -2117,6 +2161,68 @@ def test_historical_loop_da2_rescore_denies_unused_da():
     )
     assert scored.da_learned is False
     assert path.read_bytes() == raw
+
+
+def test_pad_type_gains_unmask_dna01_without_gf_abort(tmp_path):
+    crop = write_dna01_inhibit_crop(tmp_path)
+    r1 = crop.indices("photoreceptors_r1r6")
+    lif0 = CropLIF(crop, synaptic_gain=2.1, nsteps=170, luma_scale=4.0, chroma_scale=0.0)
+    lif0.reset_episode()
+    hz0 = lif0.inject(r1, 4.0, nsteps=170)
+    r0 = pool_rates(hz0, crop.groups)
+    assert r0.pools["DNa01"] <= 0.05
+    assert r0.pools["DNp07"] <= 0.05
+    assert r0.pools["DNp10"] <= 0.05
+    assert r0.pools["DNp01"] < 2000.0
+    assert "DNa01" in dead_pools(r0.pools)
+    cmd0 = unpack(r0, U0)
+
+    lif1 = CropLIF(
+        crop,
+        synaptic_gain=2.1,
+        nsteps=170,
+        luma_scale=4.0,
+        chroma_scale=0.0,
+        type_gains=pad_type_gains(),
+    )
+    lif1.reset_episode()
+    hz1 = lif1.inject(r1, 4.0, nsteps=170)
+    r1_rates = pool_rates(hz1, crop.groups)
+    dead = dead_pools(r1_rates.pools)
+    cmd1 = unpack(r1_rates, U0)
+    assert r1_rates.pools["DNa01"] > 1.0
+    assert r1_rates.pools["DNp01"] < 2000.0
+    assert lif1.g_trained is False
+    assert "DNp07" in dead
+    assert "DNp10" in dead
+    assert "DNa01" not in dead
+    assert abs(cmd1.dx_mm) > abs(cmd0.dx_mm)
+
+
+def test_pick_unpack_report_does_not_fit_lying_u():
+    n = 8
+    X = np.zeros((n, 8), dtype=np.float64)
+    X[:, 0] = np.linspace(5.0, 20.0, n)
+    X[:, 1] = np.linspace(40.0, 80.0, n)
+    X[:, 4] = np.linspace(700.0, 1100.0, n)
+    X[:, 5] = np.linspace(50.0, 400.0, n)
+    Y = np.zeros((n, 3), dtype=np.float64)
+    Y[:, 0] = np.linspace(-10.0, 30.0, n)
+    Y[:, 1] = np.linspace(-20.0, 40.0, n)
+    Y[:, 2] = np.linspace(40.0, -80.0, n)
+    fly_z = -0.01 * X[:, 5]
+    silent = pick_unpack_report(X, Y, fly_z)
+    assert silent["can_unpack_pick"] is False
+    assert "pred" not in silent
+    assert "mse" not in silent
+
+    X2 = X.copy()
+    X2[:, 2] = np.linspace(0.0, 200.0, n)
+    Y2 = Y.copy()
+    Y2[:, 2] = np.linspace(0.0, 40.0, n)
+    live = pick_unpack_report(X2, Y2, Y2[:, 2])
+    assert live["can_unpack_pick"] is True
+    assert "pred" in live
 
 
 def test_score_py_is_only_da_learned_true_assignment():

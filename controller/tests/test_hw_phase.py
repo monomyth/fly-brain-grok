@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from arm.crop import write_stub_crop
+from arm.crop import write_dna01_inhibit_crop, write_stub_crop
 from arm.lif_crop import CropLIF
 from rebot_adapter.camera_contract import CameraContractError, encoder_pair, pad_frac, pad_like, pad_roi_encoder
 from rebot_adapter.hw_phase import (
@@ -161,7 +161,31 @@ def test_hop_pad_once_on_ready_stub(tmp_path):
     hop = hop_pad_once(crop, frames["overview"].rgb, frames["wrist"].rgb, gain=2.1, nsteps=170)
     assert hop["feed"] == "overview_pad"
     assert hop["fly_picked"] is False
+    assert hop["da_learned"] is False
+    assert hop["g_trained"] is False
     assert "mdn_hz" in hop
+    assert "dead_pools" in hop
+    assert isinstance(hop["dead_pools"], list)
+
+
+def test_hop_pad_once_unmasks_dna01_logs_dead_p07_p10(tmp_path):
+    from rebot_adapter.b601 import B601Plant
+
+    crop = write_dna01_inhibit_crop(tmp_path / "inhibit")
+    plant = B601Plant.ready()
+    frames = plant.capture_all()
+    hop = hop_pad_once(crop, frames["overview"].rgb, frames["wrist"].rgb, gain=2.1, nsteps=170)
+    assert hop["fly_picked"] is False
+    assert hop["da_learned"] is False
+    assert hop["g_trained"] is False
+    assert float(hop.get("gf_hz_cube") or 0.0) < 2000.0
+    assert float(hop.get("a01_hz") or 0.0) > 1.0
+    dead = hop.get("dead_pools") or []
+    assert "DNp07" in dead
+    assert "DNp10" in dead
+    assert "DNa01" not in dead
+    cmd = hop.get("cube_command") or {}
+    assert abs(float(cmd.get("dx_mm") or 0.0)) > 0.0
 
 
 def test_hop_search_picks_working_gain_on_stub(tmp_path):

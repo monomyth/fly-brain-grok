@@ -1285,5 +1285,7 @@
     "corr_fly_z_teacher_z": -0.3922790380249007
   },
   "horizon_frames": 8,
-  "fixed_gain": 2.1
+  "fixed_gain": 2.1,
+  "can_unpack_pick": false,
+  "dead_pools": ["DNa01", "DNp07", "DNp10"]
 }

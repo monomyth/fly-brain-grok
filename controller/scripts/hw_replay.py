@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from arm.bus import pick_unpack_report
 from rebot_adapter.b601 import fk_pose
 from rebot_adapter.hw_phase import hop_pad_once, hop_search, write_json
 
@@ -51,6 +52,12 @@ def hop_jpegs(crop, overview: Path, wrist: Path, nsteps: int, *, fixed_gain: flo
         "cube_command": hop.get("cube_command"),
         "cube_bus": hop.get("cube_bus"),
         "mdn_hz": hop.get("mdn_hz"),
+        "a01_hz": hop.get("a01_hz"),
+        "p07_hz": hop.get("p07_hz"),
+        "p10_hz": hop.get("p10_hz"),
+        "pools": hop.get("pools"),
+        "dead_pools": hop.get("dead_pools"),
+        "g_trained": False,
         "fly_picked": False,
     }
 
@@ -104,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         "teacher_track": teacher,
         "hops": hops,
         "fly_picked": False,
+        "da_learned": False,
         "note": "Offline replay. fly command is one LIF tick; teacher_dxyz_1s_mm is ~1 s of teleop TCP.",
     }
     buses = []
@@ -117,35 +125,12 @@ def main(argv: list[str] | None = None) -> int:
         t = h.get("teacher_dxyz_1s_mm") or {}
         ys.append([float(t.get("x") or 0.0), float(t.get("y") or 0.0), float(t.get("z") or 0.0)])
         fly_z.append(float((h.get("fly_dxyz_mm") or {}).get("z") or 0.0))
-    fit = {"rank": None, "bus_std": None, "note": "need cube_bus on hops"}
-    if len(buses) >= 2:
-        X = np.stack(buses)
-        Y = np.asarray(ys, dtype=np.float64)
-        fit["bus_std"] = [float(x) for x in np.std(X, axis=0)]
-        fit["bus_mean"] = [float(x) for x in np.mean(X, axis=0)]
-        fit["teacher_std"] = [float(x) for x in np.std(Y, axis=0)]
-        xc = X - X.mean(axis=0)
-        yc = Y - Y.mean(axis=0)
-        fit["rank"] = int(np.linalg.matrix_rank(xc, tol=1e-3))
-        # y ≈ W x  (no bias in centered)
-        w, *_ = np.linalg.lstsq(X, Y, rcond=None)
-        pred = X @ w
-        fit["mse"] = float(np.mean((pred - Y) ** 2))
-        fit["pred"] = pred.round(2).tolist()
-        fit["teacher"] = Y.round(2).tolist()
-        fit["note"] = "linear bus→TCP over --horizon frames. Low bus_std means U cannot see the pick."
-        mdn = X[:, 5]
-        tz = Y[:, 2]
-        if mdn.std() > 1e-6 and tz.std() > 1e-6:
-            fit["corr_mdn_teacher_z"] = float(np.corrcoef(mdn, tz)[0, 1])
-        a02 = X[:, 3]
-        ty = Y[:, 1]
-        if a02.std() > 1e-6 and ty.std() > 1e-6:
-            fit["corr_a02_teacher_y"] = float(np.corrcoef(a02, ty)[0, 1])
-        fz = np.asarray(fly_z, dtype=np.float64)
-        if fz.std() > 1e-6 and tz.std() > 1e-6:
-            fit["corr_fly_z_teacher_z"] = float(np.corrcoef(fz, tz)[0, 1])
+    if buses:
+        fit = pick_unpack_report(np.stack(buses), np.asarray(ys, dtype=np.float64), np.asarray(fly_z, dtype=np.float64))
+    else:
+        fit = {"rank": None, "bus_std": None, "can_unpack_pick": False, "note": "need cube_bus on hops"}
     payload["fit"] = fit
+    payload["can_unpack_pick"] = bool(fit.get("can_unpack_pick"))
     payload["horizon_frames"] = int(args.horizon)
     payload["fixed_gain"] = args.fixed_gain
     write_json(args.out, payload)

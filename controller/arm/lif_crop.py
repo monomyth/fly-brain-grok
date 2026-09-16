@@ -13,6 +13,15 @@ from .log import g_hash
 
 MIN_STEPS = 100
 DEFAULT_GAIN = 1.5
+PAD_G_DNFL = 0.3
+PAD_G_DNXL = 1.5
+
+
+def pad_type_gains() -> np.ndarray:
+    g = np.ones(len(GAIN_CLASSES), dtype=np.float32)
+    g[GAIN_CLASSES.index("DNfl")] = np.float32(PAD_G_DNFL)
+    g[GAIN_CLASSES.index("DNxl")] = np.float32(PAD_G_DNXL)
+    return g
 
 
 def window_hz(brain: LIFNetwork) -> np.ndarray:
@@ -29,6 +38,7 @@ class CropLIF:
         luma_scale: float = LUMA_SCALE,
         chroma_scale: float = CHROMA_SCALE,
         column_scale: float = COLUMN_SCALE,
+        type_gains: np.ndarray | None = None,
     ):
         if int(nsteps) < 50:
             raise ValueError("nsteps must be ≥ 50; per-frame 3-step eval cannot propagate")
@@ -40,7 +50,12 @@ class CropLIF:
         self.column_scale = float(column_scale)
         self.brain = LIFNetwork(crop.weights, synaptic_gain=float(synaptic_gain))
         self.g = np.ones(len(GAIN_CLASSES), dtype=np.float32)
-        self.g_init = np.ones(len(GAIN_CLASSES), dtype=np.float32)
+        if type_gains is not None:
+            g_in = np.asarray(type_gains, dtype=np.float32).reshape(-1)
+            if g_in.size != len(GAIN_CLASSES):
+                raise ValueError(f"type_gains must have {len(GAIN_CLASSES)} entries")
+            self.g = g_in
+        self.g_init = np.array(self.g, copy=True)
         self.da_delta = np.zeros_like(self.crop.w0)
         indptr = crop.weights.indptr
         posts = np.repeat(np.arange(crop.n, dtype=np.int32), np.diff(indptr))

@@ -1,0 +1,54 @@
+{
+  "can_unpack_pick": false,
+  "fly_picked": false,
+  "da_learned": false,
+  "source": "reports/hw-replay-ep0-dense.json",
+  "n_hops": 15,
+  "horizon_frames": 8,
+  "fixed_gain": 2.1,
+  "nsteps": 170,
+  "pad_type_gains": {
+    "DNfl": 0.3,
+    "DNxl": 1.5
+  },
+  "dense_without_pad_type_gains": {
+    "bus_mean": [17.09, 74.78, 0.0, 121.57, 1000.0, 186.27, 0.0, 0.0],
+    "bus_std": [12.69, 31.35, 0.0, 33.73, 219.57, 124.86, 0.0, 0.0],
+    "corr_fly_z_teacher_z": -0.3922790380249007,
+    "corr_mdn_teacher_z": 0.33749183930196675,
+    "corr_a02_teacher_y": -0.0622403387978138,
+    "dead_pools": ["DNa01", "DNp07", "DNp10"],
+    "note": "DNa01/DNp07/DNp10 at 0 Hz on all 15 hops. MDN descent anti-correlates with teacher_z."
+  },
+  "pick_frame_with_pad_type_gains": {
+    "frames": "/tmp/pick-frames",
+    "a01_hz": 147.05882263183594,
+    "p07_hz": 0.0,
+    "p10_hz": 0.0,
+    "mdn_hz": 397.058837890625,
+    "gf_hz_cube": 911.7647705078125,
+    "cube_is_abort": false,
+    "dead_pools": ["DNp07", "DNp10"],
+    "g_trained": false,
+    "fly_picked": false,
+    "cube_command": {
+      "dx_mm": 1.5309080427419575,
+      "dy_mm": 0.0,
+      "dz_mm": -3.033955162162046,
+      "dgrip_mm": 0.6313127339723844,
+      "keep_level": true
+    }
+  },
+  "dna01": {
+    "n": 2,
+    "incoming_nnz": 91,
+    "reachable_from_r1_hops": 5,
+    "fires_on_pad_with_type_gains": true,
+    "gf_abort": false
+  },
+  "dnp07_dnp10": {
+    "fires_on_pad_without_gf_abort": false,
+    "dead_on_pick_frame": true
+  },
+  "note": "Pad type gains unmask DNa01 without GF abort. DNp07/DNp10 stay 0. fly_z vs teacher_z is the wrong sign for a pick. No g-teleop."
+}

@@ -10,7 +10,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from arm.bus import dead_pools
 from arm.hop_probe import MIN_CUBE_DN_HZ, _vision_run, live_go, phase_scramble
+from arm.lif_crop import CropLIF, pad_type_gains
 from arm.unpack import command_is_abort
 from .arm_host import ssh_base
 from .camera_contract import (
@@ -95,6 +97,11 @@ def hop_hardware_frames(lif, overview: np.ndarray, wrist: np.ndarray, nsteps: in
         "cube_command": cube_r["cmd"],
         "cube_bus": [float(x) for x in (cube_r["bus"] if cube_r["bus"] is not None else [])],
         "mdn_hz": float(cube_r["bus"][5]) if cube_r["bus"] is not None and len(cube_r["bus"]) > 5 else 0.0,
+        "a01_hz": float(cube_r["bus"][2]) if cube_r["bus"] is not None and len(cube_r["bus"]) > 2 else 0.0,
+        "p07_hz": float(cube_r["bus"][6]) if cube_r["bus"] is not None and len(cube_r["bus"]) > 6 else 0.0,
+        "p10_hz": float(cube_r["bus"][7]) if cube_r["bus"] is not None and len(cube_r["bus"]) > 7 else 0.0,
+        "pools": dict(cube_r.get("pools") or {}),
+        "dead_pools": list(cube_r.get("dead_pools") or dead_pools(cube_r.get("pools") or {})),
         "cube_is_abort": command_is_abort(cube_r["cmd"]),
         "silence_command_zero": True,
         "empty": {"dn_mean": black_r["dn_mean"]},
@@ -119,19 +126,23 @@ PAD_HOP_GAIN = 2.1
 
 def hop_pad_once(crop, overview: np.ndarray, wrist: np.ndarray, *, gain: float = PAD_HOP_GAIN, nsteps: int = PAD_HOP_STEPS) -> dict:
     """One pad-luma hop. Use on teleop replay instead of walking the gain grid."""
-    from arm.lif_crop import CropLIF
-
     n_use = max(int(nsteps), PAD_HOP_STEPS)
-    lif = CropLIF(crop, synaptic_gain=float(gain), nsteps=n_use, luma_scale=4.0, chroma_scale=0.0)
+    lif = CropLIF(
+        crop,
+        synaptic_gain=float(gain),
+        nsteps=n_use,
+        luma_scale=4.0,
+        chroma_scale=0.0,
+        type_gains=pad_type_gains(),
+    )
     hop = hop_hardware_frames(lif, overview, wrist, nsteps=n_use)
     hop["synaptic_gain"] = float(gain)
+    hop["g_trained"] = bool(lif.g_trained)
     return hop
 
 
 def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150, gains: tuple = HW_GAIN_GRID) -> dict:
     """First gain that live_go's vs black. Default 1.5 is silent on the dim real table."""
-    from arm.lif_crop import CropLIF
-
     last = None
     sweep = []
     ov_pad = pad_frac(overview)
@@ -141,11 +152,19 @@ def hop_search(crop, overview: np.ndarray, wrist: np.ndarray, nsteps: int = 150,
     n_use = max(int(nsteps), 170) if pad else int(nsteps)
     for g in gains:
         if pad:
-            lif = CropLIF(crop, synaptic_gain=float(g), nsteps=n_use, luma_scale=4.0, chroma_scale=0.0)
+            lif = CropLIF(
+                crop,
+                synaptic_gain=float(g),
+                nsteps=n_use,
+                luma_scale=4.0,
+                chroma_scale=0.0,
+                type_gains=pad_type_gains(),
+            )
         else:
             lif = CropLIF(crop, synaptic_gain=float(g), nsteps=n_use)
         hop = hop_hardware_frames(lif, overview, wrist, nsteps=n_use)
         hop["synaptic_gain"] = float(g)
+        hop["g_trained"] = bool(lif.g_trained)
         sweep.append(
             {
                 "gain": float(g),

@@ -545,6 +545,55 @@ def write_stub_crop(folder: Path) -> Crop:
     return crop
 
 
+def write_dna01_inhibit_crop(folder: Path) -> Crop:
+    """Tiny crop: DNfl inhibits DNa01; DNp07/DNp10 have no edges."""
+    folder.mkdir(parents=True, exist_ok=True)
+    n = 8
+    post = np.array([1, 2, 3, 3, 7, 6], dtype=np.int32)
+    pre = np.array([0, 0, 1, 2, 2, 0], dtype=np.int32)
+    data = np.array([100.0, 100.0, -240.0, 160.0, 80.0, 2.0], dtype=np.float32)
+    weights = csr_matrix((data, (post, pre)), shape=(n, n), dtype=np.float32)
+    types = np.array(["R1-R6", "DNfl_stub", "DNxl_stub", "DNa01", "DNp07", "DNp10", "DNp01", "MDN"], dtype=object)
+    manc = np.array(["", "DNfl001", "DNxl001", "", "", "", "", ""], dtype=object)
+    soma = np.array(["L"] + [""] * (n - 1), dtype=object)
+    hex1 = np.full(n, -1, dtype=np.int32)
+    hex2 = np.full(n, -1, dtype=np.int32)
+    hex1[0] = 18
+    hex2[0] = 20
+    scored = np.ones(n, dtype=bool)
+    scored[0] = False
+    t1 = np.zeros(n, dtype=bool)
+    path = folder / "dna01-inhibit.npz"
+    meta = {
+        "release": "stub-dna01-inhibit",
+        "crop_version": CROP_VERSION,
+        "n": n,
+        "nnz": int(weights.nnz),
+        "dnfl_source": DNFL_SOURCE,
+        "dnxl_source": DNXL_SOURCE,
+        "n_scored_dn": int(scored.sum()),
+        "groups": {},
+        "hex_world": [[1.0, 36.0], [1.0, 39.0]],
+    }
+    crop = _finish(
+        weights,
+        np.arange(n, dtype=np.int64) + 100,
+        types,
+        manc,
+        soma,
+        hex1,
+        hex2,
+        scored,
+        t1,
+        np.arange(n, dtype=np.int32),
+        meta,
+        path,
+    )
+    crop.groups["front_r1"] = np.array([0], dtype=np.int32)
+    crop.groups["grip_r1"] = np.array([], dtype=np.int32)
+    return crop
+
+
 def as_connectome(crop: Crop) -> Connectome:
     return Connectome(
         weights=crop.weights,

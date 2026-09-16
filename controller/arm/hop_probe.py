@@ -13,7 +13,7 @@ import numpy as np
 from malecns_cache.paths import checkpoints_dir, project_data
 from runtime.encoder import load_image
 
-from .bus import cosine, l2
+from .bus import cosine, dead_pools, l2
 from .crop import Crop, build_crop, write_stub_crop
 from .eye import LUMA_SCALE, cube_chroma_frac, phase_scramble
 from .lif_crop import CropLIF
@@ -140,6 +140,7 @@ def _vision_run(lif: CropLIF, front, grip, nsteps: int) -> dict:
         "dn_vec": rates.scored.tolist(),
         "bus": rates.vec.tolist(),
         "pools": {k: float(v) for k, v in rates.pools.items()},
+        "dead_pools": dead_pools(rates.pools),
         "r1": _mean_hz(hz, lif.crop.indices("photoreceptors_r1r6")),
         "L1": _mean_hz(hz, lif.crop.indices("L1")),
         "Mi1": _mean_hz(hz, lif.crop.indices("Mi1")),
